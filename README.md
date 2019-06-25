@@ -1,2 +1,2 @@
 # datastrat
-data movement and analysis strategy
+Data movement and analysis strategy
