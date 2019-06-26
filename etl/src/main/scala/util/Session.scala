@@ -25,32 +25,16 @@ import org.apache.log4j.Logger
 /**
  * @author Peter Ho
  */
-class LoadHdr(loadNbr: String, numOfMnth: Int = 38) {
+object Session {
+  var Current:SessionInstance = new SessionInstance(new java.sql.Timestamp(java.util.Calendar.getInstance.getTime.getTime))
 }
 
-
-  lazy val udfMnthGen = udf((strt:Timestamp, end:Timestamp) => (0 to (12*(end.getYear - strt.getYear)+end.getMonth-strt.getMonth) toArray).map(x => ((1900 + strt.getYear + (x+strt.getMonth)/12) * 100 + (x+strt.getMonth)%12+1).toString))
-
-  def fillExcpMsg(sb:StringBuilder, e:Throwable):Unit = {
-    sb.append(e.toString).append(e.getStackTraceString).append("\n")
-    if (e.getCause != null) fillExcpMsg(sb, e.getCause)
-  }
-
-  /** log execution to audit_log table with the given information about the load    *
-    * @example 1
-    *          {{{logExecution(AuditLog("201810161421323232", Array("source1, src2"), "target1", start, end, 232100313, 23213111, "LoadToCore")}}}
-    * @param audit [[com.datastrat.etl.AuditLog]] AuditLog instance to be inserted in audit_log table
-    */
-  def logExecution(audit: AuditLog) : AuditLog = {
-    import sess.implicits._
-    sess.createDataset(List(audit)).write.mode(SaveMode.Append).parquet(s"${locations("core")}/audit_log")
-    audit
-  }
-
-object Session {
+case class SessionInstance(ts:Timestamp, numOfMnth:Int = 38) {
   lazy val sdfConcat = new SimpleDateFormat("yyyyMMddHHmmss")
   lazy val sdfDisplay = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
   lazy val sdfYrMnth = new SimpleDateFormat("yyyyMM")
+  lazy val sdfYMD = new SimpleDateFormat("yyyyMMdd")
+  lazy val ymd = sdfYMD.format(ts)
 
   /// timestamp to be identified as a dummy for potentially invalid date - 9999-12-31 23:59:59.9999999
   lazy val dummyTimestamp = new Timestamp(8099, 11, 31, 23, 59, 59, 99999999)
@@ -69,13 +53,13 @@ object Session {
   lazy val sparkContext = spark.sparkContext
   lazy val hadoopConfiguration = sparkContext.hadoopConfiguration
 
-  lazy val yyEnd = rn.substring(0, 4).toInt
+  lazy val yyEnd = ymd.substring(0, 4).toInt
   lazy val yyPrv = yyEnd - 1
-  lazy val mmEnd = rn.substring(4, 6).toInt
-  lazy val tsEnd = new Timestamp(yyEnd - 1900, mmEnd, 0, 23, 59, 59, 999999999)
-  lazy val tsStrt = new Timestamp(yyEnd - 1900, mmEnd - numOfMnth, 1, 0, 0, 0, 0)
-  lazy val ymEnd = sdfYrMnth.format(tsEnd)
-  lazy val ymStrt = sdfYmMnth.format(tsStrt)
+  lazy val mmEnd = ymd.substring(4, 6).toInt
+  lazy val tsMEnd = new Timestamp(yyEnd - 1900, mmEnd, 0, 23, 59, 59, 999999999)
+  lazy val tsMStrt = new Timestamp(yyEnd - 1900, mmEnd - numOfMnth, 1, 0, 0, 0, 0)
+  lazy val ymMEnd = sdfYrMnth.format(tsMEnd)
+  lazy val ymMStrt = sdfYrMnth.format(tsMStrt)
 
   lazy val ymYtd = 1 to mmEnd map(x => f"$yyEnd$x%02d")
   lazy val ymPYr = 1 to 12 map(x => f"$yyPrv$x%02d")

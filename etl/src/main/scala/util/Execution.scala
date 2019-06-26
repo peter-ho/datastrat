@@ -17,4 +17,10 @@ object Execution {
     }
     sb.toString
   }
+
+  def fillExcpMsg(sb:StringBuilder, e:Throwable):Unit = {
+    sb.append(e.toString).append(e.getStackTraceString).append("\n")
+    if (e.getCause != null) fillExcpMsg(sb, e.getCause)
+  }
+
 }

@@ -62,7 +62,6 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], sess: SparkSe
   lazy val sdFormat1 = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
   lazy val sdFormat2 = new SimpleDateFormat("yyyyMM")
   lazy val dummyTimestamp = new java.sql.Timestamp(6988, 11, 31, 0, 0, 0, 0) //8888-12-31 00:00:00
-  lazy val udfMnthGen = udf((strt:java.sql.Timestamp, end:java.sql.Timestamp) => (0 to (12*(end.getYear - strt.getYear)+end.getMonth-strt.getMonth) toArray).map(x => ((1900 + strt.getYear + (x+strt.getMonth)/12) * 100 + (x+strt.getMonth)%12+1).toString))
 
   lazy val locations: Map[String, String] = Map(
       "source" -> (conf.get("fs-source").get),

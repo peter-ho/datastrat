@@ -6,6 +6,7 @@ import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileSystem, Path}
 import scala.collection.mutable.HashMap
 import scala.collection.JavaConverters._
+import com.datastrat.etl.Session._
 
 object ConfLoader {
 
@@ -18,30 +19,23 @@ object ConfLoader {
     * @return map with key value pair that matches configuration entries within the given configuration file
     */
   def apply(env: String, org: String, ara: String):HashMap[String,String] = {
-    val mapp: HashMap[String,String] = HashMap.empty[String,String]
+    val mp: HashMap[String,String] = HashMap.empty[String,String]
     try {
       val confBasePth = s"/$env/$org/etl/config/*.properties"
       val confPth = s"/$env/$org/etl/config/$ara/*.properties"
 
 //ClassLoader.getSystemResourceAsStream("application.properties")
-
-      val fs = FileSystem.get(getHadoopConfiguration)
-      val load = (p:String, m:HashMap[String,String]) => fs.globStatus(new Path(p))
-        .filter(x => x.isFile && x.getLen > 0).map(_.getPath)
-        .foreach(x => {
-          val props = loadFromFile(x)
-          if (props != null) {
-            props.stringPropertyNames().asScala.toList.foreach(
-            propName => m.put(propName, props.getProperty(propName)
-              .replace("$env", env).replace("$org", org).replace("$ara", ara)
-              + (if (propName.startsWith("db.")) "." else "")))
-          }
-        }
-      load(
+      val fs = FileSystem.get(Current.hadoopConfiguration)
+      val load = (p:String) => 
+        fs.globStatus(new Path(p))
+          .filter(x => x.isFile && x.getLen > 0).map(_.getPath)
+          .foreach(x => loadConfFromFile(env, org, ara, fs, x, mp))
+      load(confBasePth)
+      load(confPth)
     } catch {
       case e:Exception => e.printStackTrace()
     }
-    return mapp
+    return mp
   }
 
   /** Read configuration file with a given file path resolving the entries with the given envirnoment, 
@@ -53,24 +47,24 @@ object ConfLoader {
     * @param ara subject area of the etl configuration
     * @param fs FileSystem associated to the current Hadoop/Spark instance
     * @param filepth absolute path of the configuration file to be loaded
-    * @return map with key value pair that matches configuration entries within the given configuration file
+    * @param mp hash map with configuration entries to be replaced by the configuration file
+    * @return accumulated map with key value pair that matches configuration entries within the given configuration file replacing any existing entries with the same key
     */
-  def loadConfFromFile(env:String, org:String, ara:String, fs:FileSystem, filepth:Path):HashMap[String,String] = {
-    val mapp: HashMap[String,String] = HashMap.empty[String,String]
+  def loadConfFromFile(env:String, org:String, ara:String, fs:FileSystem, filepth:Path, mp:HashMap[String, String]):HashMap[String,String] = {
     try {
       println(s" ... reading from configuration file in hdfs: $filepth")
 
-      val props = loadFromFile(filepth)
+      val props = loadFromFile(fs, filepth)
       if (props != null) {
         props.stringPropertyNames().asScala.toList.foreach(
-          propName => mapp.put(propName, props.getProperty(propName)
+          propName => mp.put(propName, props.getProperty(propName)
             .replace("$env", env).replace("$org", org).replace("$ara", ara)
             + (if (propName.startsWith("db-")) "." else "")))
       }
     } catch {
       case e:Exception => e.printStackTrace()
     }
-    return mapp
+    mp
   }
 
   /** Reads a java properties file to a [[java.util.Properties]]
@@ -80,10 +74,9 @@ object ConfLoader {
     * @param filepth absolute path of the properties file to be read
     * @return an instance of [[java.util.Properties]] with the key value pairs in the properties file
     */
-  def loadFromFile(fs:FileSystem, filepth:Path):Properties = {
+  def loadFromFile(fs:FileSystem, pth:Path):Properties = {
     var input:InputStream = null
     try {
-      val pth = new Path(filepth)
       val fs = FileSystem.get(new Configuration())
       val properties = new Properties()
       properties.load(fs.open(pth))
