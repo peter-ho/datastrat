@@ -2,11 +2,11 @@ package com.datastrat.util
 
 import java.io.InputStream
 import java.util.Properties
-import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.{FileSystem, Path}
 import scala.collection.mutable.HashMap
 import scala.collection.JavaConverters._
-import com.datastrat.etl.Session._
+import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.fs.{FileSystem, Path}
+import com.datastrat.util.Session._
 
 object ConfLoader {
 
@@ -25,7 +25,7 @@ object ConfLoader {
       val confPth = s"/$env/$org/etl/config/$ara/*.properties"
 
 //ClassLoader.getSystemResourceAsStream("application.properties")
-      val fs = FileSystem.get(Current.hadoopConfiguration)
+      val fs = FileSystem.get(hadoopConfiguration)
       val load = (p:String) => 
         fs.globStatus(new Path(p))
           .filter(x => x.isFile && x.getLen > 0).map(_.getPath)

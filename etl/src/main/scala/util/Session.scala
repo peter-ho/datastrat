@@ -2,7 +2,7 @@
  * Copyright (c) 2019, All rights reserved.
  *
  */
-package com.datastrat.etl
+package com.datastrat.util
 
 import sys.process._
 import java.util.{Date, Calendar, Properties}
@@ -26,22 +26,12 @@ import org.apache.log4j.Logger
  * @author Peter Ho
  */
 object Session {
-  var Current:SessionInstance = new SessionInstance(new java.sql.Timestamp(java.util.Calendar.getInstance.getTime.getTime))
-}
-
-case class SessionInstance(ts:Timestamp, numOfMnth:Int = 38) {
-  lazy val sdfConcat = new SimpleDateFormat("yyyyMMddHHmmss")
   lazy val sdfDisplay = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
   lazy val sdfYrMnth = new SimpleDateFormat("yyyyMM")
   lazy val sdfYMD = new SimpleDateFormat("yyyyMMdd")
-  lazy val ymd = sdfYMD.format(ts)
-
+  lazy val sdfConcat = new SimpleDateFormat("yyyyMMddHHmmss")
   /// timestamp to be identified as a dummy for potentially invalid date - 9999-12-31 23:59:59.9999999
   lazy val dummyTimestamp = new Timestamp(8099, 11, 31, 23, 59, 59, 99999999)
-  /// log identifier of the current execution
-  lazy val logKey = sdfConcat.format(Calendar.getInstance.getTime)
-    .concat(RandomUtils.nextLong(1000L, 9000L).toString) 
-
   lazy val spark = SparkSession
       .builder()
       .config("spark.sql.parquet.compression.codec", "snappy")
@@ -53,13 +43,23 @@ case class SessionInstance(ts:Timestamp, numOfMnth:Int = 38) {
   lazy val sparkContext = spark.sparkContext
   lazy val hadoopConfiguration = sparkContext.hadoopConfiguration
 
+  /// log identifier of the current execution
+  lazy val logKey = Session.sdfConcat.format(Calendar.getInstance.getTime)
+    .concat(RandomUtils.nextLong(1000L, 9000L).toString) 
+  var Current:SessionInstance = new SessionInstance(new java.sql.Timestamp(java.util.Calendar.getInstance.getTime.getTime))
+}
+
+case class SessionInstance(ts:Timestamp, numOfMnth:Int = 38) {
+  lazy val ymd = Session.sdfYMD.format(ts)
+  lazy val loadNbr = Session.sdfConcat.format(ts)
+
   lazy val yyEnd = ymd.substring(0, 4).toInt
   lazy val yyPrv = yyEnd - 1
   lazy val mmEnd = ymd.substring(4, 6).toInt
   lazy val tsMEnd = new Timestamp(yyEnd - 1900, mmEnd, 0, 23, 59, 59, 999999999)
   lazy val tsMStrt = new Timestamp(yyEnd - 1900, mmEnd - numOfMnth, 1, 0, 0, 0, 0)
-  lazy val ymMEnd = sdfYrMnth.format(tsMEnd)
-  lazy val ymMStrt = sdfYrMnth.format(tsMStrt)
+  lazy val ymMEnd = Session.sdfYrMnth.format(tsMEnd)
+  lazy val ymMStrt = Session.sdfYrMnth.format(tsMStrt)
 
   lazy val ymYtd = 1 to mmEnd map(x => f"$yyEnd$x%02d")
   lazy val ymPYr = 1 to 12 map(x => f"$yyPrv$x%02d")
