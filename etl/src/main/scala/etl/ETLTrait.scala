@@ -1,11 +1,17 @@
 package com.datastrat.etl
-
+import org.apache.spark.sql.DataFrame
 /**
  *
  * @author Peter Ho
  * @version  1.0.0
  * 
  */
+
+/** Result of an extraction capturing information to be logged
+ */
+case class ExtractResult (comment: String, data: Option[DataFrame], src_tbl_nms:  Array[String], load_type: String) {
+  def this(result:ExtractResult, data:Option[DataFrame]) = this(result.comment, data, result.src_tbl_nms, result.load_type)
+}
 
 /** Status of a job at the end of its execution, implicitly casted as String
  */

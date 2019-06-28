@@ -23,8 +23,7 @@ object ConfLoader {
     try {
       val confBasePth = s"/$env/$org/etl/config/*.properties"
       val confPth = s"/$env/$org/etl/config/$ara/*.properties"
-
-//ClassLoader.getSystemResourceAsStream("application.properties")
+      //TODO: potential to utilize resource packaged in jar utilizing ClassLoader.getSystemResourceAsStream("application.properties")
       val fs = FileSystem.get(hadoopConfiguration)
       val load = (p:String) => 
         fs.globStatus(new Path(p))

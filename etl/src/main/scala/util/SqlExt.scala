@@ -96,5 +96,26 @@ object SqlExt {
       d
     }
 
+
+    /** replace a column with the maximum occured value of a given column
+      * @example 1
+      *          {{{getMaxOccuredValue(sqlContext, df, "bsns_nm", Seq("tax_id"))}}}
+      * @param sqlContext [[org.apache.spark.sql.SQLContext]] instance for the transformation
+      * @param data [[org.apache.spark.sql.DataFrame]] instance with the data fto be transformed
+      * @param columnName a String with name of the colummn to be used for counting occurences, getting value, and be replaced, e.g. "bsns_nm")
+      * @param keyColumnNames a sequence of String with name of the columns to be used for paritioning, e.g. Seq("billg_prov_id")
+      */
+    def replaceMaxOccuredValue(columnName: String, keyColumnNames: Seq[String]): DataFrame = {
+      val colCount = "_fcount"
+      val colMaxOVal = "_maxO"
+      val colFcrank = "_fcrank"
+      val colsPart = keyColumnNames :+ columnName
+      val w = Window.partitionBy(colsPart.head, colsPart.tail:_*).orderBy(desc(colCount))
+      val d0 = df.withColumn(colCount, count(columnName).over(Window.partitionBy(colsPart.head, colsPart.tail:_*)))
+        .withColumn(colFcrank, row_number().over(Window.partitionBy(keyColumnNames.head, keyColumnNames.tail:_*).orderBy(desc(colCount), df(columnName))))
+      d0.withColumn(colMaxOVal, when(d0("_fcrank") === 1, df(columnName)).otherwise(null))
+        .withColumn(columnName, max(colMaxOVal).over(Window.partitionBy(keyColumnNames.head, keyColumnNames.tail:_*)))
+        .drop(colMaxOVal).drop(colCount).drop(colFcrank)
+    }
   }
 }

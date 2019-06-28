@@ -28,17 +28,9 @@ import com.datastrat.util.SessionInstance
 import com.datastrat.util.SqlExt._
 import com.datastrat.util.Execution._
 
-case class ExtractResult (comment: String, data: Option[DataFrame], src_tbl_nms:  Array[String], load_type: String) {
-  def this(result:ExtractResult, data:Option[DataFrame]) = this(result.comment, data, result.src_tbl_nms, result.load_type)
-}
-
-
 /**  A generic class for boot-strapping the overall flow of Extract Transform Load implementations
  */
 abstract class ETLStrategy(env: String, conf: Map[String, String], sess: SparkSession, subj_area_nm:String, tgtTbl: (String, String), src_tbl_nms:Array[(String, String)]=Array(), colPart:Seq[String]=Seq()) extends ETLTrait {
-  //lazy val sdFormat1 = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
-  //lazy val sdFormat2 = new SimpleDateFormat("yyyyMM")
-  //lazy val dummyTimestamp = new java.sql.Timestamp(6988, 11, 31, 0, 0, 0, 0) //8888-12-31 00:00:00
 
   lazy val locations: Map[String, String] = Map(
       "inbound" -> (conf.get("pth.inbound").get),
@@ -65,7 +57,7 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], sess: SparkSe
     println(s" ... extract starting with args: ${args.mkString(",")}")
     val start = Calendar.getInstance.getTime
     val tsStart = new java.sql.Timestamp(start.getTime)
-    val loadNbr = conf.getOrElse("load.number", "")
+    val loadNbr = conf.getOrElse("load.nbr", "")
     if (loadNbr.length > 0) {
       Current = new SessionInstance(new java.sql.Timestamp(sdfConcat.parse(loadNbr).getTime))
     }
@@ -80,7 +72,7 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], sess: SparkSe
       al = logExecution(if (result.data.isEmpty) alEmpty else {
         result.data.get.persist(StorageLevel.MEMORY_AND_DISK_SER)
         result.data.get.printSchema
-        if (args.length > 1 && args(1) == "report") report(result.data.get)
+        if (args.length > 1 && args(1) == "report") result.data.get.report()
         if (result.data.get.count == 0) alEmpty
         else writeToTable(result, start, tgtTbl._1, tgtTbl._2, Current.loadNbr, true, s"load_nbr=${Current.loadNbr}/load_log_key=$llk")
       })
@@ -93,21 +85,6 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], sess: SparkSe
         }
     }
     al
-  }
-
-  /** based on the base [[org.apache.spark.sql.DataFrame]], the appnd [[org.apache.spark.sql.DataFrame*]] is union to the end, with any missing column(s) added as null
-    *
-    * @return an instance of [[org.apache.spark.sql.DataFrame]] with base and appnd union together
-    */
-  def union(base:DataFrame, appnd:DataFrame*):DataFrame = {
-    base.union(appnd.map(x => x.select((base.columns.intersect(x.columns).map(x(_)) ++ base.columns.diff(x.columns).map(lit(null).as(_))):_*).select(base.columns.head, base.columns.tail:_*)).reduce((x,y) => x.union(y)))
-  }
-
-  def report(df: DataFrame) = {
-    val cols = df.columns
-    cols.foreach(x => {
-      df.groupBy(x).agg(count(x).as("cnt")).orderBy(desc("cnt")).show(50, false)
-    })
   }
 
   def extrctSnglPrd(dfMd:DataFrame, ymFltr:Seq[String]): DataFrame = {
@@ -126,14 +103,6 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], sess: SparkSe
     ExtractResult(null, Some(res), src_tbl_nms.map(x => s"${dbNms(x._1)}${x._2}"), "CoreToCore")
   }
 
-  def debug(name:String, df:DataFrame):DataFrame = {
-    df.cache
-    println(s"$name count: ${df.count}")
-    df.show(150, false)
-    //df.write.mode(SaveMode.Overwrite).parquet(s"${locations("wk")}/$name")
-    df
-  }
-  
 
   /** execute a given extract for a predefined period
     *
@@ -210,47 +179,6 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], sess: SparkSe
   def writeToTable(result: ExtractResult, start: java.util.Date, dbKey: String, tblNm: String, loadNbr:String, unpersistDataAfter: Boolean, partitionHdfsSubpath: String = null): AuditLog  = {
     writeToTable(result, start, dbKey, tblNm, loadNbr, getTableHdfsPath(dbKey, tblNm, partitionHdfsSubpath), unpersistDataAfter)
   }
-
-  /** writes a given [[org.apache.spark.sql.DataFrame]] instance to a specified Hive table overwriting existing data in a specific hdfs path potentially for partitioned data, execution is also logged with end time as current date time after log is executed. 
-    *
-    * @example 1
-    *          {{{writeToTable2(ExtractResult("Extract success or failed due to ... ", Some(df), Array("tbl1", "tbl2")), start, "awh", "table1", "/ts/data/warehouse/tbl1", true)}}}
-    * @param result [[com.datastrat.hgcr.etl.ExtractResult]] instance to be written as content of a Hive table with current data be overwritten inicluding comment, data and source information
-    * @param start [[java.util.Date]] instance specifying the date time the job starts
-    * @param dbKey key of the database for this [[org.apache.spark.sql.DataFrame]] to be written to, e.g. "wk"
-    * @param tblNm name of the Hive table to be written to 
-    * @param loadNbr number as an identifier of the current load 
-    * @param hdfsPath path for the data to be written to
-    * @param unpersistDataAfter true if data frame should be unpersisted, false otherwise
-  def writeToTable2(result: ExtractResult, start: java.util.Date, dbKey: String, tblNm: String, loadNbr: String, llk: String, unpersistDataAfter: Boolean): AuditLog = {
-    val sb = new StringBuilder(s"yarn application id: ${sess.sparkContext.applicationId}\nresult comment: ${result.comment}\n")
-    val end = Calendar.getInstance.getTime
-    val tgtTblNm = dbNms(dbKey) + tblNm
-    val dfOrig = sess.table(tgtTblNm)
-    val tgtOrigCnt = dfOrig.count
-    var rowCount:Long = 0
-    if (!result.data.isEmpty) {
-      val ds = result.data.get
-      rowCount = ds.count
-      ds.show
-      val col = ds.columns.filter(!colPart.contains(_)) ++ Seq("load_nbr", "load_log_key") ++ colPart
-      println("columns to select:: ")
-      col.foreach(println)
-      ds.select("mdcl_expsr_nbr").distinct.show(50)
-      ds.withColumn("load_nbr", lit(loadNbr)).withColumn("load_log_key", lit(llk))
-        .select(col.head, col.tail:_*)
-        .write.format("parquet").mode(SaveMode.Overwrite).insertInto(tgtTblNm)
-      //ds.write.mode(SaveMode.Overwrite).parquet(hdfsPath)
-      sess.sql(s"msck repair table $tgtTblNm")
-      if (unpersistDataAfter) ds.unpersist
-    }
-    val archResult = archive(dbKey, tblNm)
-    sb.append(s"number of partitions after archive: ${archResult._1}\n")
-    sb.append(archResult._2)
-    
-    AuditLog(logKey, Current.loadNbr, subj_area_nm, result.src_tbl_nms, tgtTblNm, new java.sql.Timestamp(start.getTime), new java.sql.Timestamp(end.getTime), rowCount, tgtOrigCnt, sb.toString, result.load_type, if (archResult._1 > 1) JobStatus.Failure else JobStatus.Success, System.getProperty("user.name"))
-  }
-*/
 
   /** writes a given [[org.apache.spark.sql.DataFrame]] instance to a specified Hive table overwriting existing data in a specific hdfs path potentially for partitioned data, execution is also logged with end time as current date time after log is executed. 
     *
@@ -340,9 +268,6 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], sess: SparkSe
         val spath = s"${locations(dbKey)}$tblNm/load_nbr=${x.getString(0)}/load_log_key=${x.getString(1)}"
         val path = new Path(spath)
         sbMsg.append(retry(() => fs.delete(path, true), s"delete of $spath failed ", 3))
-        //while (!fs.delete(new Path(path), true)) {
-        //  sb.append(s"delete of ${locations(dbKey)}$tblNm/load_nbr=$x failed at try #$tryCount")
-        //}
         sess.sql(s"alter table ${dbNms(dbKey)}$tblNm drop partition(load_nbr='${x.getString(0)}', load_log_key='${x.getString(1)}')")
       })
     } else {
@@ -356,8 +281,6 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], sess: SparkSe
         val srcPath = new Path(s"${locations(dbKey)}$spath")
         val destPath = new Path(s"${locations("archive")}$spath")
         sbMsg.append(retry(() => fs.rename(srcPath, destPath), s"move of $spath failed ", 3))
-        //if (!fs.rename(new Path(s"${locations(dbKey)}$path"), new Path(s"${locations("archive")}$path"))) {
-        //}
         sess.sql(s"alter table ${dbNms(dbKey)}$tblNm drop partition(load_nbr='${x.getString(0)}', load_log_key='${x.getString(1)}')")
       })
       sess.sql(s"msck repair table ${dbNms("archive")}$tblNm")
@@ -387,49 +310,6 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], sess: SparkSe
 }
 
 object ETLStrategy {
-  //lazy val sdFormat = new SimpleDateFormat("yyyyMMddHHmmss")
-  //lazy val sdFormatR = new SimpleDateFormat("yyyyMM")
-  //lazy val LoadLogKey = {
-  //  val currentdateTime = sdFormat.format(Calendar.getInstance.getTime)
-  //  currentdateTime.concat(RandomUtils.nextLong(1000L, 9000L).toString) 
-  //}
-  //lazy val defaultRfrshNbr:String = { 
-  //  val c = Calendar.getInstance.getTime
-  //  c.setMonth(c.getMonth -1)
-  //  sdFormatR.format(c)
-  //}
-//  lazy val spark = SparkSession
-//      .builder()
-//      .config("spark.sql.parquet.compression.codec", "snappy")
-//      .config("hive.exec.dynamic.partition.mode", "nonstrict")
-//      .config("parquet.column.index.access", "true")
-//      .config("spark.sql.hive.convertMetastoreParquet", "false")
-//      .enableHiveSupport()
-//      .getOrCreate()
-//  lazy val sparkContext = spark.sparkContext
-
-  /** replace a given list of columns by its own value within a partition
-    *
-    * @example 1
-    *          {{{replaceWith(d, Seq("val"), Seq(d("id")), Seq(desc("year")))}}}
-    * @param df  data frame with the full set of data
-    * @param colsToReplace name of columns to be replaced
-    * @param prtBy list of columns to be used for partition
-    * @param ordBy list of columns to be used for identifying the value to be used for replacement
-    * @return a data frame with the same schema and row count but column specified to be replaced with its own based on order and partitioning
-    */
-  def replaceWith(df:DataFrame, colsToReplace:Seq[String], prtBy:Seq[Column], ordBy:Seq[Column]):DataFrame = {
-    var d = df
-    val w = Window.partitionBy(prtBy:_*)
-    colsToReplace.foreach(x => {
-      val rn = s"rn$x"
-      val d0 = d.withColumn(rn, row_number().over(w.orderBy(ordBy:_*)))
-      d = d0.withColumn(x, when(d0(rn) === 1, d0(x)).otherwise(null))
-        .withColumn(x, max(x).over(w)).drop(rn)
-    })
-    d
-  }
-
   def main(args: Array[String]) {
     if (args.length < 3) throw new MissingArgumentException("class name, environment (dev, tst, uat, prd) are required as a parameter, organization, and area are required.")
     else {
@@ -439,11 +319,9 @@ object ETLStrategy {
       val env = args(1)
       val org = args(2)
       val ara = args(3)
-      val confPath = s"/$env/$org/$ara/etl/config/app.properties"
-      println(s" ... reading from configuration file in hdfs: $confPath")
-      val conf =  ConfLoader(env, org, confPath)
-      conf.put("load-nbr", if (args.length == 4) "" else args(4))
-      println(s" ... execution starts [${args(0)}] ${conf.getOrElse("load-nbr", "")}")
+      val conf =  ConfLoader(env, org, ara)
+      conf.put("load.nbr", if (args.length == 4) "" else args(4))
+      println(s" ... execution starts [${args(0)}] ${conf.getOrElse("load.nbr", "")}")
       val stra = cnstr.newInstance(env, org, ara, conf.toMap, spark).asInstanceOf[ETLTrait]
       val al = stra.extract(args.slice(4, args.length))
       println(al)
