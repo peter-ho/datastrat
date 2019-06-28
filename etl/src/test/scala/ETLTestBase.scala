@@ -59,8 +59,12 @@ object ETLTestBase {
     //println("actual: " + actual.columns)
     //println("expected: " + expected.columns)
     val dCompare = expected.join(actual,
-        expected.columns.map(x => trim(expected(x)) <=> trim(actual(x)))
-          .reduce((x,y) => x and y), "outer")
+        expected.schema.filter(_.dataType.typeName != "array").map(_.name)
+          .map(x => trim(expected(x)) <=> trim(actual(x)))
+          .reduce(_ and _), "outer")
+        .filter(expected.schema.filter(_.dataType.typeName == "array").map(_.name)
+          .map(x => actual(x) === expected(x))
+          .reduceOption(_ and _).getOrElse(lit(true)))
     println(s"counts: ${actual.count} ${dCompare.count}")
     dCompare.show(60, false)
     expected.count() == actual.count && dCompare.count() == expected.count

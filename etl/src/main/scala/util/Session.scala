@@ -58,8 +58,8 @@ case class SessionInstance(ts:Timestamp, numOfMnth:Int = 38) {
   lazy val mmEnd = ymd.substring(4, 6).toInt
   lazy val tsMEnd = new Timestamp(yyEnd - 1900, mmEnd, 0, 23, 59, 59, 999999999)
   lazy val tsMStrt = new Timestamp(yyEnd - 1900, mmEnd - numOfMnth, 1, 0, 0, 0, 0)
-  lazy val ymMEnd = Session.sdfYrMnth.format(tsMEnd)
-  lazy val ymMStrt = Session.sdfYrMnth.format(tsMStrt)
+  lazy val ymEnd = Session.sdfYrMnth.format(tsMEnd)
+  lazy val ymStrt = Session.sdfYrMnth.format(tsMStrt)
 
   lazy val ymYtd = 1 to mmEnd map(x => f"$yyEnd$x%02d")
   lazy val ymPYr = 1 to 12 map(x => f"$yyPrv$x%02d")
