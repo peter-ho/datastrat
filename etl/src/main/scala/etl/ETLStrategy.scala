@@ -74,7 +74,7 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], sess: SparkSe
         result.data.get.printSchema
         if (args.length > 1 && args(1) == "report") result.data.get.report()
         if (result.data.get.count == 0) alEmpty
-        else writeToTable(result, start, tgtTbl._1, tgtTbl._2, Current.loadNbr, true, s"load_nbr=${Current.loadNbr}/load_log_key=$llk")
+        else writeToTable(result, start, tgtTbl._1, tgtTbl._2, Current.loadNbr, true, s"load_id=${Current.loadNbr}/load_log_key=$llk")
       })
     } catch {
       	case e:Throwable => {
@@ -201,7 +201,7 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], sess: SparkSe
     var rowCount:Long = 0
     val ds = result.data.get
     val cols = sess.catalog.listColumns(tgtTblNm).select("name").collect
-      .map(x=>x.getString(0)).filter(x => x != "load_log_key" && x != "load_nbr")
+      .map(x=>x.getString(0)).filter(x => x != "load_log_key" && x != "load_id")
     ds.show
     val d = ds.select(cols.head, cols.tail:_*).distinct.cache
     ds.unpersist
@@ -257,39 +257,39 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], sess: SparkSe
     /// refresh number and load log key are assumed to be the first two partitions
     val parts = sess.sql(s"show partitions ${dbNms(dbKey)}$tblNm")
       .withColumn("partition", split(regexp_replace('partition, "[^\\/]+?=", ""), "/"))
-      .withColumn("load_nbr", 'partition(0)).withColumn("load_log_key", 'partition(1))
-      .select("load_nbr", "load_log_key").cache
+      .withColumn("load_id", 'partition(0)).withColumn("load_log_key", 'partition(1))
+      .select("load_id", "load_log_key").cache
     val loads = parts.orderBy("load_log_key").collect().dropRight(1)
-    //val runIds = dfOrig.select("load_nbr", "load_log_key").distinct.collect
+    //val runIds = dfOrig.select("load_id", "load_log_key").distinct.collect
     val fs = FileSystem.get(hadoopConfiguration)
     if (dbKey == "stage") {
       println(" === no archive for stage, so just delete current data == ")
       loads.foreach(x => {
-        val spath = s"${locations(dbKey)}$tblNm/load_nbr=${x.getString(0)}/load_log_key=${x.getString(1)}"
+        val spath = s"${locations(dbKey)}$tblNm/load_id=${x.getString(0)}/load_log_key=${x.getString(1)}"
         val path = new Path(spath)
         sbMsg.append(retry(() => fs.delete(path, true), s"delete of $spath failed ", 3))
-        sess.sql(s"alter table ${dbNms(dbKey)}$tblNm drop partition(load_nbr='${x.getString(0)}', load_log_key='${x.getString(1)}')")
+        sess.sql(s"alter table ${dbNms(dbKey)}$tblNm drop partition(load_id='${x.getString(0)}', load_log_key='${x.getString(1)}')")
       })
     } else {
       println(" === create directory for each rfresh number == ")
-      parts.select("load_nbr").distinct.collect().map(_.getString(0)).foreach(x => {
-        fs.mkdirs(new Path(s"${locations("archive")}$tblNm/load_nbr=$x"))
+      parts.select("load_id").distinct.collect().map(_.getString(0)).foreach(x => {
+        fs.mkdirs(new Path(s"${locations("archive")}$tblNm/load_id=$x"))
       })
-      println(" === move/rename current load_nbr/run ")
+      println(" === move/rename current load_id/run ")
       loads.foreach(x => {
-        val spath = s"$tblNm/load_nbr=${x.getString(0)}/load_log_key=${x.getString(1)}"
+        val spath = s"$tblNm/load_id=${x.getString(0)}/load_log_key=${x.getString(1)}"
         val srcPath = new Path(s"${locations(dbKey)}$spath")
         val destPath = new Path(s"${locations("archive")}$spath")
         sbMsg.append(retry(() => fs.rename(srcPath, destPath), s"move of $spath failed ", 3))
-        sess.sql(s"alter table ${dbNms(dbKey)}$tblNm drop partition(load_nbr='${x.getString(0)}', load_log_key='${x.getString(1)}')")
+        sess.sql(s"alter table ${dbNms(dbKey)}$tblNm drop partition(load_id='${x.getString(0)}', load_log_key='${x.getString(1)}')")
       })
       sess.sql(s"msck repair table ${dbNms("archive")}$tblNm")
-      val rnToDel = sess.table(dbNms("archive") + tblNm).select("load_nbr").distinct.orderBy("load_nbr").collect().map(_.getString(0)).dropRight(4)
+      val rnToDel = sess.table(dbNms("archive") + tblNm).select("load_id").distinct.orderBy("load_id").collect().map(_.getString(0)).dropRight(4)
       rnToDel.foreach(x => {
-        val spath = s"${locations("archive")}$tblNm/load_nbr=$x"
+        val spath = s"${locations("archive")}$tblNm/load_id=$x"
         val archPath = new Path(spath)
         sbMsg.append(retry(() => fs.delete(archPath, true), s"deletion of extra archive file failed ", 3))
-        sess.sql(s"alter table ${dbNms("archive")}$tblNm drop partition(load_nbr='$x')")
+        sess.sql(s"alter table ${dbNms("archive")}$tblNm drop partition(load_id='$x')")
       })
     }
     val partCnt = sess.sql(s"show partitions ${dbNms(dbKey)}$tblNm").count

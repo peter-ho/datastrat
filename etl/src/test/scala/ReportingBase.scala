@@ -18,7 +18,7 @@ class ReportingBase extends FlatSpec {
   "bot loading" should "load bot files from resources as dataframe" in {
     import spark.implicits._
 
-    val botPrfAttrb = spark.read.option("header", true).csv(resourcesDirectory.getAbsolutePath() + "/bot/ara.csv")
+    val botPrfAttrb = spark.read.option("header", true).csv(resourcesDirectory.getAbsolutePath() + "/msft.bot/ara.csv")
     assert(botPrfAttrb.count > 0)
   }
 }

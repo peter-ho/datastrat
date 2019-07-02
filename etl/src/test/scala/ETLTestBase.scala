@@ -80,7 +80,8 @@ object ETLTestBase {
 
   def cast(data: DataFrame, schema: Array[(String, String)]) = {
     var d = data
-    List.range(0, schema.size).foreach(x => d = d.withColumn(schema(x)._1, d(schema(x)._1).cast(schema(x)._2)))
+    val s = schema.filter(! _._2.startsWith("array"))
+    List.range(0, s.size).foreach(x => d = d.withColumn(s(x)._1, d(schema(x)._1).cast(s(x)._2)))
     d
   }
 
@@ -93,9 +94,9 @@ object ETLTestBase {
     spark.table(nm).show(3, false)
   }
 
-  def loadTbl(nm: String, subarea: String) = {
-    val pathSch = s"${resourcesDirectory.getAbsolutePath()}/$subarea/$nm.schema"
-    val path = s"${resourcesDirectory.getAbsolutePath()}/$subarea/$nm.csv"
+  def loadTbl(nm: String, org:String, subarea: String) = {
+    val pathSch = s"${resourcesDirectory.getAbsolutePath()}/$org.$subarea/$nm.schema"
+    val path = s"${resourcesDirectory.getAbsolutePath()}/$org.$subarea/$nm.csv"
     val txtSch = Source.fromFile(pathSch).getLines.toArray.map(_.split(" ").filter(_.length > 1))
     val schema = txtSch.filter(_(1).toLowerCase != "string").map(x => (x(0).replace("`", ""), x(1)))
     val d = cast(spark.read.option("header", true).csv(path), schema)
@@ -105,5 +106,6 @@ object ETLTestBase {
     spark.table(nm).show(3, false)
   }
 
-  loadTbl("ara", "bot")
+  loadTbl("ara", "msft", "bot")
+  loadTbl("activity_log","msft","gaming")
 }
