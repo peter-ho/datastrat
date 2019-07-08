@@ -1,17 +1,17 @@
 package com.datastrat.test
 
-import org.apache.spark.{ SparkConf, SparkContext }
-import org.apache.spark.SparkContext._
-import org.apache.spark.sql.functions._
-import org.apache.spark.sql.types._
+//import org.apache.spark.{ SparkConf, SparkContext }
+//import org.apache.spark.SparkContext._
+//import org.apache.spark.sql.functions._
+//import org.apache.spark.sql.types._
 import org.scalatest._
 import org.scalatest.FlatSpec
-import org.scalatest.BeforeAndAfter
-import org.scalatest.BeforeAndAfterAll
-import java.io.File
-import com.datastrat.test.ETLTestBase._
+//import org.scalatest.BeforeAndAfter
+//import org.scalatest.BeforeAndAfterAll
+//import java.io.File
+import com.datastrat.etl.ETLTestBase._
 
-class ReportingBase extends FlatSpec { 
+class Bot extends FlatSpec { 
 
   import spark.implicits._
 
