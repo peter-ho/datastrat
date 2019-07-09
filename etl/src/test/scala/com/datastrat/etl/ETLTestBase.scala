@@ -26,7 +26,7 @@ object ETLTestBase {
       .config("hive.exec.dynamic.partition.mode", "nonstrict")
       //.config.setSparkHome("~/sparkhome")
       .config("spark.eventLog.dir", "~/sparkhome/log")
-      .config("spark.sql.shuffle.partitions", "5")
+      .config("spark.sql.shuffle.partitions", "2")
       .config("spark.ui.port", (7700 + Math.abs(scala.util.Random.nextInt(1000))).toString)
       .getOrCreate()
   spark.sparkContext.setLogLevel("ERROR")

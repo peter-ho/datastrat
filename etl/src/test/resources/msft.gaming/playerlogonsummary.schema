@@ -1,6 +1,4 @@
 `month_id` string COMMENT `id of the current month in yyyyMM format`,
 `player_id` int COMMENT `id of a player`,
 `logon_secs` int COMMENT `number of second a player logged across all games for a given month`
-`load_id` string COMMENT
-`load_log_key` string COMMENT
 

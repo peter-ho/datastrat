@@ -3,5 +3,3 @@
 `game_id` int COMMENT `id of the game played`, 
 `type` string COMMENT `type of the activity including LOGON, LOGOFF, WIN, LOSS, START, MOVE`,
 `params` array<string> COMMENT `paramters specific to this specific activity`
-`load_id` string
-`load_log_key` string
