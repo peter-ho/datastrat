@@ -10,15 +10,13 @@ import org.scalatest.FlatSpec
 import org.scalatest.BeforeAndAfter
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest._
-import com.datastrat.test.ETLTestBase._
+import com.datastrat.etl.ETLTestBase._
 import com.datastrat.util.SqlExt._
 
-class GamingTest extends FlatSpec {
+class SqlExtTest extends FlatSpec {
 
-  "playerLogonSummary" should "return the summary of player activities" in {
+  "udfMnthGen" should "return an array of year month strings given a start and end timestamp" in {
     import spark.implicits._
-/*
-    val da = spark.table(
 
     val d1 = Seq(
  ("a1", new Timestamp(2019-1900,4-1, 1,0,0,0,0), new Timestamp(2019-1900,8-1, 10,0,0,0,0))
@@ -34,6 +32,32 @@ class GamingTest extends FlatSpec {
 
     val dActual = d1.withColumn("YearMths", udfMnthGen('StartTime,'EndTime)).drop("StartTime", "EndTime")
     assert(compare(dExpected, dActual))
-*/
+  }
+
+  "replaceMaxOccuredValue" should "return a dataframe replacing a column with mostly frequently shown value given a column for partition" in {
+    import spark.implicits._
+
+    val d1 = Seq(
+ ("a1", "1233","Ann","My Business")
+,("a2", "1233","Ann","My Biz")
+,("a3", "1233","Ana","My Business")
+,("a4", "1344","Bob","Your Business")
+,("a5", "2230","Cat","Car Dealership")
+,("a6", "2230","Cat","Car")
+,("a7", "2230","Cat","Car")
+    ).toDF("TransId","PlayerId","Name","BusinessName")
+
+    val dExpected = Seq(
+ ("a1", "1233","Ann","My Business")
+,("a2", "1233","Ann","My Business")
+,("a3", "1233","Ana","My Business")
+,("a4", "1344","Bob","Your Business")
+,("a5", "2230","Cat","Car")
+,("a6", "2230","Cat","Car")
+,("a7", "2230","Cat","Car")
+    ).toDF("TransId","PlayerId","Name","BusinessName")
+
+    val dActual = d1.replaceMaxOccuredValue("BusinessName", Seq("PlayerId"))
+    assert(compare(dExpected, dActual))
   }
 }

@@ -1,10 +1,6 @@
 package com.datastrat.etl
 import org.apache.spark.sql.{SparkSession, DataFrame, Column}
-//import org.apache.spark.{SparkContext, SparkConf}
-//import org.apache.spark.sql.{SQLContext, DataFrame, SaveMode, SparkSession, Dataset, Column}
 import org.apache.spark.sql.functions._
-//import org.apache.spark.sql.expressions.{WindowSpec, Window}
-//import org.apache.spark.storage.StorageLevel
 import com.datastrat.util.SqlExt._
 
 /**
@@ -21,10 +17,6 @@ abstract class PopulateStage(env:String, conf:Map[String,String], spark:SparkSes
   tgtTbl:String, srcTbl:(String,String), idCrt: (Seq[Column], Seq[Column]) =null)
   extends ETLStrategy(env, conf, spark, araNm, ("stage", tgtTbl), Array(srcTbl)) {
 
-  def transform(src:DataFrame): DataFrame = {
-    src
-  }
-
   override def extractInternal(args: Array[String]): ExtractResult = {
     import spark.implicits._
     var df = spark.table(tn(srcTbl))
@@ -35,6 +27,6 @@ abstract class PopulateStage(env:String, conf:Map[String,String], spark:SparkSes
       df = latestDf.drop("rc")
     }
 
-    ExtractResult(null, Some(df), Array(tn(srcTbl)), "InboundToStage")
+    ExtractResult(null, Some(df), "InboundToStage")
   }
 }

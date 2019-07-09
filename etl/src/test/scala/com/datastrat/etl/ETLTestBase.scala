@@ -1,4 +1,4 @@
-package com.datastrat.test
+package com.datastrat.etl
 
 import java.sql.Timestamp
 import java.io.File
@@ -39,6 +39,7 @@ object ETLTestBase {
     "db.inbound" -> "",
     "db.stage" -> "",
     "db.work" -> "",
+    "db.reference" -> "",
     "db.warehouse" -> "",
     "db.outbound" -> "",
     "db.archive" -> "",
@@ -53,11 +54,18 @@ object ETLTestBase {
   )
 
   lazy val resourcesDirectory = new File("src/test/resources")
-  def compare(expected: DataFrame, actual: DataFrame): Boolean = {
+
+  def compare(expectedTblNm:String, actualExtractResult:ExtractResult):Boolean = {
+    if (actualExtractResult.data.isEmpty) return false
+    val expected = spark.table(expectedTblNm)
+    return compare(expected, actualExtractResult.data.get) 
+  }
+
+  def compare(expected: DataFrame, actual: DataFrame):Boolean = {
     import spark.implicits._
     actual.show(60, false)
-    //println("actual: " + actual.columns)
-    //println("expected: " + expected.columns)
+    println("actual: " + actual.columns.mkString(","))
+    println("expected: " + expected.columns.mkString(","))
     val dCompare = expected.join(actual,
         expected.schema.filter(_.dataType.typeName != "array").map(_.name)
           .map(x => trim(expected(x)) <=> trim(actual(x)))
@@ -94,18 +102,24 @@ object ETLTestBase {
     spark.table(nm).show(3, false)
   }
 
-  def loadTbl(nm: String, org:String, subarea: String) = {
-    val pathSch = s"${resourcesDirectory.getAbsolutePath()}/$org.$subarea/$nm.schema"
-    val path = s"${resourcesDirectory.getAbsolutePath()}/$org.$subarea/$nm.csv"
-    val txtSch = Source.fromFile(pathSch).getLines.toArray.map(_.split(" ").filter(_.length > 1))
-    val schema = txtSch.filter(_(1).toLowerCase != "string").map(x => (x(0).replace("`", ""), x(1)))
-    val d = cast(spark.read.option("header", true).csv(path), schema)
-    d.show(3, false)
-    d.createOrReplaceTempView(nm)
-    println(s"""Loaded table $nm from $path""")
-    spark.table(nm).show(3, false)
-  }
+  lazy val repoLoadFile = scala.collection.mutable.Map[String,String]()
 
-  loadTbl("ara", "msft", "bot")
-  loadTbl("activity_log","msft","gaming")
+  // load resource file into spark temp view if its not already loaded, assuming tables are unique within an origanization
+  def loadTbl(nm:String, filePrefix:String, org:String, ara:String) = {
+    val flKey = s"$org $ara $filePrefix"
+    if (repoLoadFile.getOrElse(nm, "") != flKey) {
+      val pathSch = s"${resourcesDirectory.getAbsolutePath()}/$org.$ara/$filePrefix.schema"
+      val path = s"${resourcesDirectory.getAbsolutePath()}/$org.$ara/$filePrefix.csv"
+      val txtSch = Source.fromFile(pathSch).getLines.filter(_.length > 2).toArray.map(_.split(" "))
+      //txtSch.foreach(x => println(x.mkString("|")))
+      val schema = txtSch.filter(_(1).toLowerCase != "string").map(x => (x(0).replace("`", ""), x(1)))
+      val d = cast(spark.read.option("header", true).csv(path), schema)
+      d.printSchema
+      d.show(3, false)
+      d.createOrReplaceTempView(nm)
+      println(s"""Loaded table $nm from $path""")
+      //spark.table(nm).show(3, false)
+      repoLoadFile.put(nm, flKey)
+    }
+  }
 }

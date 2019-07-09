@@ -30,7 +30,7 @@ import com.datastrat.util.Execution._
 
 /**  A generic class for boot-strapping the overall flow of Extract Transform Load implementations
  */
-abstract class ETLStrategy(env: String, conf: Map[String, String], sess: SparkSession, subj_area_nm:String, tgtTbl: (String, String), src_tbl_nms:Array[(String, String)]=Array(), colPart:Seq[String]=Seq()) extends ETLTrait {
+abstract class ETLStrategy(env: String, conf: Map[String, String], spark: SparkSession, ara_nm:String, tgtTbl: (String, String), src_tbl_nms:Array[(String, String)]=Array(), colPart:Seq[String]=Seq()) extends ETLTrait {
 
   lazy val locations: Map[String, String] = Map(
       "inbound" -> (conf.get("pth.inbound").get),
@@ -50,6 +50,21 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], sess: SparkSe
       "archive" -> (conf.get("db.archive").get))
   def tn(tblNm:(String, String)):String = s"${dbNms(tblNm._1)}${tblNm._2}"
 
+  def transform(tgtTblNm:String, src:ExtractResult): ExtractResult = {
+    if (src.data.isEmpty) return src
+    val ds = src.data.get.cache
+    val cols = spark.catalog.listColumns(tgtTblNm).filter(not(new Column("isPartition"))).select("name", "dataType").collect
+    ds.show
+    var d = ds
+    cols.foreach(x => d = d.withColumn(x.getString(0), d(x.getString(0)).cast(x.getString(1))))
+    val cn = cols.map(_.getString(0))
+    d = d.select(cn.head, cn.tail:_*).distinct.cache
+    val rowCount = d.count
+    ds.unpersist
+    d.show
+    ExtractResult(src, Option(d), rowCount)
+  }
+
   /** Override base trait importData function for the process to start executing the following steps:
    *  setup parameters, execute transformation, write resulting [[org.apache.spark.sql.DataFrame]] to disk, log result
    */
@@ -67,8 +82,8 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], sess: SparkSe
     val tgtTblNm = dbNms(tgtTbl._1) + tgtTbl._2
     var al:AuditLog = null
     try {
-      val result = extractInternal(args)
-      val alEmpty = AuditLog(llk, Current.loadNbr, subj_area_nm, Array(), tgtTblNm, tsStart, new java.sql.Timestamp(Calendar.getInstance.getTime.getTime), 0, 0, "no data returned", result.load_type, JobStatus.Failure, usrNm)
+      val result = transform(tgtTblNm, extractInternal(args))
+      val alEmpty = AuditLog(llk, Current.loadNbr, ara_nm, Array(), tgtTblNm, tsStart, new java.sql.Timestamp(Calendar.getInstance.getTime.getTime), 0, 0, "no data returned", result.load_type, JobStatus.Failure, usrNm)
       al = logExecution(if (result.data.isEmpty) alEmpty else {
         result.data.get.persist(StorageLevel.MEMORY_AND_DISK_SER)
         result.data.get.printSchema
@@ -81,7 +96,7 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], sess: SparkSe
           e.printStackTrace
           val sb = new StringBuilder
           fillExcpMsg(sb, e)
-          al = logExecution(AuditLog(llk, Current.loadNbr, subj_area_nm, Array(), tgtTblNm, tsStart, new java.sql.Timestamp(Calendar.getInstance.getTime.getTime), 0, 0, sb.toString, "", JobStatus.Failure, usrNm))
+          al = logExecution(AuditLog(llk, Current.loadNbr, ara_nm, Array(), tgtTblNm, tsStart, new java.sql.Timestamp(Calendar.getInstance.getTime.getTime), 0, 0, sb.toString, "", JobStatus.Failure, usrNm))
         }
     }
     al
@@ -94,13 +109,13 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], sess: SparkSe
   /** based on the given configuration, read from data source, load and transform it to a [[org.apache.spark.sql.DataFrame]], to be marked as abstract, transform is responsible for error logging and if an error occured, None is returned
     *
     * @example 1
-    *          {{{extract(sess, dbNms)}}}
+    *          {{{extract(spark, dbNms)}}}
     * @return an instance of [[com.datastrat.hgcr.etl.ExtractResult]]
     */
   def extractInternal(args: Array[String]): ExtractResult = {
-    import sess.implicits._
+    import spark.implicits._
     val res = extractPrd(null, extrctSnglPrd)
-    ExtractResult(null, Some(res), src_tbl_nms.map(x => s"${dbNms(x._1)}${x._2}"), "CoreToCore")
+    ExtractResult(null, Some(res), "CoreToCore", -1)
   }
 
 
@@ -193,28 +208,20 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], sess: SparkSe
     * @param unpersistDataAfter true if data frame should be unpersisted, false otherwise
     */
   def writeToTable(result: ExtractResult, start: java.util.Date, dbKey: String, tblNm: String, loadNbr: String, hdfsPath: String, unpersistDataAfter: Boolean): AuditLog = {
-    val sb = new StringBuilder(s"yarn application id: ${sess.sparkContext.applicationId}\nresult comment: ${result.comment}\n")
+    val sb = new StringBuilder(s"yarn application id: ${spark.sparkContext.applicationId}\nresult comment: ${result.comment}\n")
     val end = Calendar.getInstance.getTime
     val tgtTblNm = dbNms(dbKey) + tblNm
-    val dfOrig = sess.table(tgtTblNm)
+    val dfOrig = spark.table(tgtTblNm)
     val tgtOrigCnt = dfOrig.count
-    var rowCount:Long = 0
-    val ds = result.data.get
-    val cols = sess.catalog.listColumns(tgtTblNm).select("name").collect
-      .map(x=>x.getString(0)).filter(x => x != "load_log_key" && x != "load_id")
-    ds.show
-    val d = ds.select(cols.head, cols.tail:_*).distinct.cache
-    ds.unpersist
-    rowCount = d.count
-    d.show
+    val d = result.data.get
     d.write.mode(SaveMode.Overwrite).parquet(hdfsPath)
-    sess.sql(s"msck repair table $tgtTblNm")
+    spark.sql(s"msck repair table $tgtTblNm")
     val archResult = archive(dbKey, tblNm)
     sb.append(s"number of partitions after archive: ${archResult._1}\n")
     sb.append(archResult._2)
-    postWriteSetup(dbKey, tblNm, tgtTblNm, loadNbr, hdfsPath, ds, cols)
-    if (unpersistDataAfter) ds.unpersist
-    AuditLog(logKey, Current.loadNbr, subj_area_nm, result.src_tbl_nms, tgtTblNm, new java.sql.Timestamp(start.getTime), new java.sql.Timestamp(end.getTime), rowCount, tgtOrigCnt, sb.toString, result.load_type, if (archResult._1 > 1) JobStatus.Failure else JobStatus.Success, System.getProperty("user.name"))
+    postWriteSetup(dbKey, tblNm, tgtTblNm, loadNbr, hdfsPath, d, d.columns)
+    if (unpersistDataAfter) d.unpersist
+    AuditLog(logKey, Current.loadNbr, ara_nm, src_tbl_nms.map(x=>tn(x._1,x._2)), tgtTblNm, new java.sql.Timestamp(start.getTime), new java.sql.Timestamp(end.getTime), result.row_count, tgtOrigCnt, sb.toString, result.load_type, if (archResult._1 > 1) JobStatus.Failure else JobStatus.Success, System.getProperty("user.name"))
   }
 
   def writeValidation(result: ExtractResult, archResult: (Long, String), tgtTblNm: String, loadNbr: String): String = {
@@ -232,7 +239,7 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], sess: SparkSe
         println(if (fs.delete(x.getPath, false)) "Success" else "Fail")
     })
     
-    sess.sql(s"analyze table $tgtTblNm compute statistics for columns ${cols.mkString(",")}")
+    spark.sql(s"analyze table $tgtTblNm compute statistics for columns ${cols.mkString(",")}")
     println(s"statistics computed for table: $tgtTblNm")
     //TODO: potential integration with impala within scala code
     //val cmd = "impala-shell -i sl01plvbic001.wellpoint.com -d default -k --ssl --ca_cert=/opt/cloudera/security/CAChain.pem".split(" ").toList
@@ -252,10 +259,10 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], sess: SparkSe
   }
 
   def archive(dbKey: String, tblNm: String): (Long, String) = {
-    import sess.implicits._
+    import spark.implicits._
     val sbMsg = new StringBuilder
     /// refresh number and load log key are assumed to be the first two partitions
-    val parts = sess.sql(s"show partitions ${dbNms(dbKey)}$tblNm")
+    val parts = spark.sql(s"show partitions ${dbNms(dbKey)}$tblNm")
       .withColumn("partition", split(regexp_replace('partition, "[^\\/]+?=", ""), "/"))
       .withColumn("load_id", 'partition(0)).withColumn("load_log_key", 'partition(1))
       .select("load_id", "load_log_key").cache
@@ -268,7 +275,7 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], sess: SparkSe
         val spath = s"${locations(dbKey)}$tblNm/load_id=${x.getString(0)}/load_log_key=${x.getString(1)}"
         val path = new Path(spath)
         sbMsg.append(retry(() => fs.delete(path, true), s"delete of $spath failed ", 3))
-        sess.sql(s"alter table ${dbNms(dbKey)}$tblNm drop partition(load_id='${x.getString(0)}', load_log_key='${x.getString(1)}')")
+        spark.sql(s"alter table ${dbNms(dbKey)}$tblNm drop partition(load_id='${x.getString(0)}', load_log_key='${x.getString(1)}')")
       })
     } else {
       println(" === create directory for each rfresh number == ")
@@ -281,18 +288,18 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], sess: SparkSe
         val srcPath = new Path(s"${locations(dbKey)}$spath")
         val destPath = new Path(s"${locations("archive")}$spath")
         sbMsg.append(retry(() => fs.rename(srcPath, destPath), s"move of $spath failed ", 3))
-        sess.sql(s"alter table ${dbNms(dbKey)}$tblNm drop partition(load_id='${x.getString(0)}', load_log_key='${x.getString(1)}')")
+        spark.sql(s"alter table ${dbNms(dbKey)}$tblNm drop partition(load_id='${x.getString(0)}', load_log_key='${x.getString(1)}')")
       })
-      sess.sql(s"msck repair table ${dbNms("archive")}$tblNm")
-      val rnToDel = sess.table(dbNms("archive") + tblNm).select("load_id").distinct.orderBy("load_id").collect().map(_.getString(0)).dropRight(4)
+      spark.sql(s"msck repair table ${dbNms("archive")}$tblNm")
+      val rnToDel = spark.table(dbNms("archive") + tblNm).select("load_id").distinct.orderBy("load_id").collect().map(_.getString(0)).dropRight(4)
       rnToDel.foreach(x => {
         val spath = s"${locations("archive")}$tblNm/load_id=$x"
         val archPath = new Path(spath)
         sbMsg.append(retry(() => fs.delete(archPath, true), s"deletion of extra archive file failed ", 3))
-        sess.sql(s"alter table ${dbNms("archive")}$tblNm drop partition(load_id='$x')")
+        spark.sql(s"alter table ${dbNms("archive")}$tblNm drop partition(load_id='$x')")
       })
     }
-    val partCnt = sess.sql(s"show partitions ${dbNms(dbKey)}$tblNm").count
+    val partCnt = spark.sql(s"show partitions ${dbNms(dbKey)}$tblNm").count
     println(s" === archive completed with partition count: $partCnt")
     (partCnt, sbMsg.toString)
   }
@@ -303,8 +310,8 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], sess: SparkSe
     * @param audit [[com.datastrat.etl.AuditLog]] AuditLog instance to be inserted in audit_log table
     */
   def logExecution(audit: AuditLog) : AuditLog = {
-    import sess.implicits._
-    sess.createDataset(List(audit)).write.mode(SaveMode.Append).parquet(s"${locations("core")}/audit_log")
+    import spark.implicits._
+    spark.createDataset(List(audit)).write.mode(SaveMode.Append).parquet(s"${locations("core")}/audit_log")
     audit
   }
 }
