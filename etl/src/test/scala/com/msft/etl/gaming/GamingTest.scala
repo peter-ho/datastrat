@@ -31,7 +31,7 @@ class GamingTest extends FlatSpec {
     loadTbl("playerlogonsummary", "playerlogonsummary", "msft", "gaming")
 
     val etl = new playerlogonsummary.warehouse("local", conf, spark)
-    val res = etl.transform("activitylog", etl.extractInternal(Array("")))
+    val res = etl.transform("playerlogonsummary", etl.extractInternal(Array("")))
     assert(compare("playerlogonsummary", res))
     assert(res.row_count == res.data.get.count)
   }
