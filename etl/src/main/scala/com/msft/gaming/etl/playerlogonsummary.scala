@@ -28,12 +28,17 @@ object playerlogonsummary {
         .drop("last_type")
         .withColumn("next_ts", lead("activity_ts", 1).over(w))                            // assign next activity ts to next_ts
 
+      df1.show
+
       // assign next_ts as beginning of the month if type is LOGOFF
-      val df = df1.withColumn("next_ts", when('type === "LOGOFF", date_add(add_months(last_day('activity_ts), -1), 1))
+      val df2 = df1.withColumn("next_ts", when('type === "LOGOFF", date_add(add_months(last_day('activity_ts), -1), 1))
           // assign next_ts as end of the month if not populated
           .when('next_ts.isNull, date_format(last_day('next_ts), "yyyy-MM-dd 23:59:59.999999").cast("timestamp"))
           .otherwise('next_ts))
         .withColumn("logon_secs", abs(datediff('next_ts, 'activity_ts)*24*60*60))
+      df2.show
+
+      val df = df2
         .groupBy("month_id", "player_id").agg(sum('logon_secs).as("logon_secs"))
 
       ExtractResult(null, Some(df), "StageToCore")
