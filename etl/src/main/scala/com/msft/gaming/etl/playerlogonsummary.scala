@@ -6,7 +6,7 @@ import org.apache.spark.sql.functions._
 import com.datastrat.etl._
 
 object playerlogonsummary {
-  class warehouse(env:String, org:String, ara:String, conf:Map[String, String], spark:SparkSession) extends ETLStrategy(env, conf, spark, "gaming", ("warehouse", "playerlogonsummary"), Array(("stage", "activitylog"))) {
+  class warehouse(env:String, conf:Map[String, String], spark:SparkSession) extends ETLStrategy(env, conf, spark, "gaming", ("warehouse", "playerlogonsummary"), Array(("stage", "activitylog"))) {
     override def executeInternal(args:Array[String]): ExeResult = {
       import spark.implicits._
 
