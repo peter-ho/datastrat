@@ -17,14 +17,12 @@ import org.apache.spark.{SparkContext, SparkConf}
 import org.apache.spark.sql.{SQLContext, DataFrame, SaveMode, SparkSession, Dataset, Column}
 import org.apache.spark.sql.expressions.{WindowSpec, Window}
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.hive.HiveContext
 import org.apache.spark.storage.StorageLevel
 import org.apache.commons.cli.MissingArgumentException
 import org.apache.commons.lang3.RandomUtils
 import org.apache.log4j.Logger
-import com.datastrat.util.ConfLoader
+import com.datastrat.util.{ConfLoader, SessionInstance}
 import com.datastrat.util.Session._
-import com.datastrat.util.SessionInstance
 import com.datastrat.util.SqlExt._
 import com.datastrat.util.Execution._
 
@@ -48,9 +46,10 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], spark: SparkS
       "warehouse" -> (conf.get("db.warehouse").get),
       "outbound" -> (conf.get("db.outbound").get),
       "archive" -> (conf.get("db.archive").get))
+  lazy val usrNm = System.getProperty("user.name")
   def tn(tblNm:(String, String)):String = s"${dbNms(tblNm._1)}${tblNm._2}"
 
-  def transform(tgtTblNm:String, src:ExtractResult): ExtractResult = {
+  def transform(tgtTblNm:String, src:ExeResult): ExeResult = {
     if (src.data.isEmpty) return src
     val ds = src.data.get.cache
     val cols = spark.catalog.listColumns(tgtTblNm).filter(not(new Column("isPartition"))).select("name", "dataType").collect
@@ -62,41 +61,40 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], spark: SparkS
     val rowCount = d.count
     ds.unpersist
     d.show
-    ExtractResult(src, Option(d), rowCount)
+    ExeResult(src, Option(d), rowCount)
   }
 
-  /** Override base trait importData function for the process to start executing the following steps:
+  val loadNbr = conf.getOrElse("load.nbr", "")
+  if (loadNbr.length > 0) {
+    Current = new SessionInstance(new java.sql.Timestamp(sdfConcat.parse(loadNbr).getTime))
+  }
+
+  /** Override base trait execute function for the process to start executing the following steps:
    *  setup parameters, execute transformation, write resulting [[org.apache.spark.sql.DataFrame]] to disk, log result
    */
-  override def extract(args: Array[String]): AuditLog = {
-    println(s" ... extract starting with args: ${args.mkString(",")}")
+  override def execute(args: Array[String]): AuditLog = {
+    println(s" ... execute starting with args: ${args.mkString(",")}")
     val start = Calendar.getInstance.getTime
     val tsStart = new java.sql.Timestamp(start.getTime)
-    val loadNbr = conf.getOrElse("load.nbr", "")
-    if (loadNbr.length > 0) {
-      Current = new SessionInstance(new java.sql.Timestamp(sdfConcat.parse(loadNbr).getTime))
-    }
 
-    val llk = logKey
-    val usrNm = System.getProperty("user.name")
     val tgtTblNm = dbNms(tgtTbl._1) + tgtTbl._2
     var al:AuditLog = null
     try {
-      val result = transform(tgtTblNm, extractInternal(args))
-      val alEmpty = AuditLog(llk, Current.loadNbr, ara_nm, Array(), tgtTblNm, tsStart, new java.sql.Timestamp(Calendar.getInstance.getTime.getTime), 0, 0, "no data returned", result.load_type, JobStatus.Failure, usrNm)
+      val result = transform(tgtTblNm, executeInternal(args))
+      val alEmpty = AuditLog(logKey, Current.loadNbr, ara_nm, Array(), tgtTblNm, tsStart, new java.sql.Timestamp(Calendar.getInstance.getTime.getTime), 0, 0, "no data returned", result.load_type, JobStatus.Failure, usrNm)
       al = logExecution(if (result.data.isEmpty) alEmpty else {
         result.data.get.persist(StorageLevel.MEMORY_AND_DISK_SER)
         result.data.get.printSchema
         if (args.length > 1 && args(1) == "report") result.data.get.report()
         if (result.data.get.count == 0) alEmpty
-        else writeToTable(result, start, tgtTbl._1, tgtTbl._2, Current.loadNbr, true, s"load_id=${Current.loadNbr}/load_log_key=$llk")
+        else writeToTable(result, start, tgtTbl._1, tgtTbl._2, Current.loadNbr, true, s"load_id=${Current.loadNbr}/load_log_key=$logKey")
       })
     } catch {
       	case e:Throwable => {
           e.printStackTrace
           val sb = new StringBuilder
           fillExcpMsg(sb, e)
-          al = logExecution(AuditLog(llk, Current.loadNbr, ara_nm, Array(), tgtTblNm, tsStart, new java.sql.Timestamp(Calendar.getInstance.getTime.getTime), 0, 0, sb.toString, "", JobStatus.Failure, usrNm))
+          al = logExecution(AuditLog(logKey, Current.loadNbr, ara_nm, Array(), tgtTblNm, tsStart, new java.sql.Timestamp(Calendar.getInstance.getTime.getTime), 0, 0, sb.toString, "", JobStatus.Failure, usrNm))
         }
     }
     al
@@ -109,20 +107,20 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], spark: SparkS
   /** based on the given configuration, read from data source, load and transform it to a [[org.apache.spark.sql.DataFrame]], to be marked as abstract, transform is responsible for error logging and if an error occured, None is returned
     *
     * @example 1
-    *          {{{extract(spark, dbNms)}}}
-    * @return an instance of [[com.datastrat.hgcr.etl.ExtractResult]]
+    *          {{{execute(spark, dbNms)}}}
+    * @return an instance of [[com.datastrat.etl.ExeResult]]
     */
-  def extractInternal(args: Array[String]): ExtractResult = {
+  def executeInternal(args: Array[String]): ExeResult = {
     import spark.implicits._
-    val res = extractPrd(null, extrctSnglPrd)
-    ExtractResult(null, Some(res), "CoreToCore", -1)
+    val res = executePrd(null, extrctSnglPrd)
+    ExeResult(null, Some(res), "CoreToCore", -1)
   }
 
 
-  /** execute a given extract for a predefined period
+  /** execute a given transform for a predefined period
     *
     * @example 1
-    *          {{{extractPrd(df, "ytd", "YTD", "C", f)}}}
+    *          {{{executePrd(df, "ytd", "YTD", "C", f)}}}
     * @param dfMmd data frame with monthly detail
     * @param ymKey key to refresh header ymMap to get a range of ym as filter
     * @param prdTyp type of period e.g. YTD, QTR, etc..
@@ -130,14 +128,14 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], spark: SparkS
     * @param exe function to execute to provide a dataframe to be unioned together with a given set of year month ids
     * @return a data frame with data frame joined together with a specific timeframe
     */
-  def extractPrd(dfMmd:DataFrame, ymKey:String, prdTyp:String, currOrPrevPrd:String, exe:(DataFrame, Seq[String])=>DataFrame):DataFrame = {
+  def executePrd(dfMmd:DataFrame, ymKey:String, prdTyp:String, currOrPrevPrd:String, exe:(DataFrame, Seq[String])=>DataFrame):DataFrame = {
     val ymFltr = Current.ymMap(ymKey)
     println(s"...start loading prd for $ymFltr")
     exe(dfMmd, ymFltr).withColumn("prd_type", lit(prdTyp))
       .withColumn("curnt_or_prev_prd", lit(currOrPrevPrd))
   }
 
-  /** execute a given extract for a set of predefined period
+  /** execute a given transform for a set of predefined period
     *
     * @example 1
     *          {{{exePrd(df, f)}}}
@@ -145,22 +143,22 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], spark: SparkS
     * @param exe function to execute to provide a dataframe to be unioned together with a given set of year month ids
     * @return a data frame with data frame joined together with multiple timeframe
     */
-  def extractPrd(dfMmd:DataFrame, exe:(DataFrame,Seq[String])=>DataFrame):DataFrame = {
-    var df = extractPrd(dfMmd, "ytd", "YTD", "C", exe).withColumn("prd_nm", lit("YTD"))
+  def executePrd(dfMmd:DataFrame, exe:(DataFrame,Seq[String])=>DataFrame):DataFrame = {
+    var df = executePrd(dfMmd, "ytd", "YTD", "C", exe).withColumn("prd_nm", lit("YTD"))
     1 to 4 foreach(y => {
       println(s"...start loading quarter $y")
-      val d = extractPrd(dfMmd, s"q$y", "QTR", "C", exe).withColumn("prd_nm",
+      val d = executePrd(dfMmd, s"q$y", "QTR", "C", exe).withColumn("prd_nm",
         lit(s"Q$y ${Current.yyEnd}"))
       //d.show
       df = df.union(d)
     })
     4 to 4 foreach(y => {
       println(s"...start loading previous year quarter $y")
-      val d = extractPrd(dfMmd, s"pq$y", "QTR", "P", exe).withColumn("prd_nm",
+      val d = executePrd(dfMmd, s"pq$y", "QTR", "P", exe).withColumn("prd_nm",
         lit(s"Q$y ${Current.yyPrv}"))
       df = df.union(d)
     })
-    df.union(extractPrd(dfMmd, "pyr", "YTD", "P", exe).withColumn("prd_nm", lit("YTD")))
+    df.union(executePrd(dfMmd, "pyr", "YTD", "P", exe).withColumn("prd_nm", lit("YTD")))
   }
 
   /** get the hdfs path of a given Hive table
@@ -181,25 +179,25 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], spark: SparkS
     *
     *
     * @example 1
-    *          {{{writeToTable(ExtractResult("Extract success or failed due to ... ", Some(df), Array("tbl1", "tbl2")), start, "awh", "table1", true)}}}
-    * @param result [[com.datastrat.hgcr.etl.ExtractResult]] instance to be written as content of a Hive table with current data be overwritten inicluding comment, data and source information
+    *          {{{writeToTable(ExeResult("Execute success or failed due to ... ", Some(df), Array("tbl1", "tbl2")), start, "awh", "table1", true)}}}
+    * @param result [[com.datastrat.etl.ExeResult]] instance to be written as content of a Hive table with current data be overwritten inicluding comment, data and source information
     * @param start [[java.util.Date]] instance specifying the date time the job starts
     * @param dbKey key of the database for this [[org.apache.spark.sql.DataFrame]] to be written to, e.g. "wk"
     * @param tblNm name of the Hive table to be written to 
     * @param loadNbr number as an identifier of the current load 
     * @param unpersistDataAfter true if data frame should be unpersisted, false otherwise
-    *          {{{writeToTable(df, start, "wk", "table1")}}}
+    *          {{{writeToTable(res, start, "wk", "table1")}}}
     * @param partitionHdfsSubpath part of the hdfs path that identifies the partition this data to be written to
     */
-  def writeToTable(result: ExtractResult, start: java.util.Date, dbKey: String, tblNm: String, loadNbr:String, unpersistDataAfter: Boolean, partitionHdfsSubpath: String = null): AuditLog  = {
+  def writeToTable(result: ExeResult, start: java.util.Date, dbKey: String, tblNm: String, loadNbr:String, unpersistDataAfter: Boolean, partitionHdfsSubpath: String = null): AuditLog  = {
     writeToTable(result, start, dbKey, tblNm, loadNbr, getTableHdfsPath(dbKey, tblNm, partitionHdfsSubpath), unpersistDataAfter)
   }
 
   /** writes a given [[org.apache.spark.sql.DataFrame]] instance to a specified Hive table overwriting existing data in a specific hdfs path potentially for partitioned data, execution is also logged with end time as current date time after log is executed. 
     *
     * @example 1
-    *          {{{writeToTable(ExtractResult("Extract success or failed due to ... ", Some(df), Array("tbl1", "tbl2")), start, "awh", "table1", "/ts/data/warehouse/tbl1", true)}}}
-    * @param result [[com.datastrat.hgcr.etl.ExtractResult]] instance to be written as content of a Hive table with current data be overwritten inicluding comment, data and source information
+    *          {{{writeToTable(ExeResult("Execute success or failed due to ... ", Some(df), Array("tbl1", "tbl2")), start, "awh", "table1", "/ts/data/warehouse/tbl1", true)}}}
+    * @param result [[com.datastrat.etl.ExeResult]] instance to be written as content of a Hive table with current data be overwritten inicluding comment, data and source information
     * @param start [[java.util.Date]] instance specifying the date time the job starts
     * @param dbKey key of the database for this [[org.apache.spark.sql.DataFrame]] to be written to, e.g. "wk"
     * @param tblNm name of the Hive table to be written to 
@@ -207,7 +205,7 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], spark: SparkS
     * @param hdfsPath path for the data to be written to
     * @param unpersistDataAfter true if data frame should be unpersisted, false otherwise
     */
-  def writeToTable(result: ExtractResult, start: java.util.Date, dbKey: String, tblNm: String, loadNbr: String, hdfsPath: String, unpersistDataAfter: Boolean): AuditLog = {
+  def writeToTable(result: ExeResult, start: java.util.Date, dbKey: String, tblNm: String, loadNbr: String, hdfsPath: String, unpersistDataAfter: Boolean): AuditLog = {
     val sb = new StringBuilder(s"yarn application id: ${spark.sparkContext.applicationId}\nresult comment: ${result.comment}\n")
     val end = Calendar.getInstance.getTime
     val tgtTblNm = dbNms(dbKey) + tblNm
@@ -224,7 +222,7 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], spark: SparkS
     AuditLog(logKey, Current.loadNbr, ara_nm, src_tbl_nms.map(x=>tn(x._1,x._2)), tgtTblNm, new java.sql.Timestamp(start.getTime), new java.sql.Timestamp(end.getTime), result.row_count, tgtOrigCnt, sb.toString, result.load_type, if (archResult._1 > 1) JobStatus.Failure else JobStatus.Success, System.getProperty("user.name"))
   }
 
-  def writeValidation(result: ExtractResult, archResult: (Long, String), tgtTblNm: String, loadNbr: String): String = {
+  def writeValidation(result: ExeResult, archResult: (Long, String), tgtTblNm: String, loadNbr: String): String = {
     "test"
   }
 
@@ -330,7 +328,7 @@ object ETLStrategy {
       conf.put("load.nbr", if (args.length == 4) "" else args(4))
       println(s" ... execution starts [${args(0)}] ${conf.getOrElse("load.nbr", "")}")
       val stra = cnstr.newInstance(env, org, ara, conf.toMap, spark).asInstanceOf[ETLTrait]
-      val al = stra.extract(args.slice(4, args.length))
+      val al = stra.execute(args.slice(4, args.length))
       println(al)
       if (JobStatus.Success.toString != al.status) {
         sys.exit(1)

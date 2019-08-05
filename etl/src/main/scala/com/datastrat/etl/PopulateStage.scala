@@ -17,7 +17,7 @@ abstract class PopulateStage(env:String, conf:Map[String,String], spark:SparkSes
   tgtTbl:String, srcTbl:(String,String), idCrt: (Seq[Column], Seq[Column]) =null)
   extends ETLStrategy(env, conf, spark, araNm, ("stage", tgtTbl), Array(srcTbl)) {
 
-  override def extractInternal(args: Array[String]): ExtractResult = {
+  override def executeInternal(args: Array[String]): ExeResult = {
     import spark.implicits._
     var df = spark.table(tn(srcTbl))
 
@@ -27,6 +27,6 @@ abstract class PopulateStage(env:String, conf:Map[String,String], spark:SparkSes
       df = latestDf.drop("rc")
     }
 
-    ExtractResult(null, Some(df), "InboundToStage")
+    ExeResult(null, Some(df), "InboundToStage")
   }
 }

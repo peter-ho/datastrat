@@ -1,5 +1,7 @@
 package com.datastrat.etl
+
 import org.apache.spark.sql.DataFrame
+
 /**
  *
  * @author Peter Ho
@@ -7,14 +9,13 @@ import org.apache.spark.sql.DataFrame
  * 
  */
 
-/** Result of an extraction capturing information to be logged
+/** Result of an execution capturing information to be logged
  */
-case class ExtractResult (comment: String, data: Option[DataFrame], load_type: String, row_count:Long = -1) {
-  def this(result:ExtractResult, data:Option[DataFrame], row_count:Long) = this(result.comment, data, result.load_type, row_count)
-//  def this(comment:String, data:DataFrame, src_tbl_nms:Array[String], load_type:String) = this(comment, Option(data), src_tbl_nms, load_type, -1)
+case class ExeResult (comment: String, data: Option[DataFrame], load_type: String, row_count:Long = -1) {
+  def this(result:ExeResult, data:Option[DataFrame], row_count:Long) = this(result.comment, data, result.load_type, row_count)
 }
-object ExtractResult {
-  def apply(result:ExtractResult, data:Option[DataFrame], row_count:Long) = new ExtractResult(result, data, row_count)
+object ExeResult {
+  def apply(result:ExeResult, data:Option[DataFrame], row_count:Long) = new ExeResult(result, data, row_count)
 }
 
 /** Status of a job at the end of its execution, implicitly casted as String
@@ -28,5 +29,5 @@ case class AuditLog (load_log_key:String, load_id:String, ara_nm:String, src_tbl
 /** A generic interface for Extract Transform Load implementations
  */
 trait ETLTrait {
-  def extract(args: Array[String]): AuditLog { }
+  def execute(args: Array[String]): AuditLog { }
 }

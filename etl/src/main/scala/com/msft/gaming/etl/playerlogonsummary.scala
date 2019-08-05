@@ -6,8 +6,8 @@ import org.apache.spark.sql.functions._
 import com.datastrat.etl._
 
 object playerlogonsummary {
-  class warehouse(env: String, conf: Map[String, String], spark:SparkSession) extends ETLStrategy(env, conf, spark, "gaming", ("warehouse", "playerlogonsummary"), Array(("stage", "activitylog"))) {
-    override def extractInternal(args:Array[String]): ExtractResult = {
+  class warehouse(env:String, org:String, ara:String, conf:Map[String, String], spark:SparkSession) extends ETLStrategy(env, conf, spark, "gaming", ("warehouse", "playerlogonsummary"), Array(("stage", "activitylog"))) {
+    override def executeInternal(args:Array[String]): ExeResult = {
       import spark.implicits._
 
       // logon counts are partitioned by each player playing each game
@@ -41,7 +41,7 @@ object playerlogonsummary {
       val df = df2
         .groupBy("month_id", "player_id").agg(sum('logon_secs).as("logon_secs"))
 
-      ExtractResult(null, Some(df), "StageToCore")
+      ExeResult(null, Some(df), "StageToCore")
     }
   }
 }

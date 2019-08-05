@@ -55,10 +55,10 @@ object ETLTestBase {
 
   lazy val resourcesDirectory = new File("src/test/resources")
 
-  def compare(expectedTblNm:String, actualExtractResult:ExtractResult):Boolean = {
-    if (actualExtractResult.data.isEmpty) return false
+  def compare(expectedTblNm:String, actualExeResult:ExeResult):Boolean = {
+    if (actualExeResult.data.isEmpty) return false
     val expected = spark.table(expectedTblNm)
-    return compare(expected, actualExtractResult.data.get) 
+    return compare(expected, actualExeResult.data.get) 
   }
 
   def compare(expected: DataFrame, actual: DataFrame):Boolean = {
