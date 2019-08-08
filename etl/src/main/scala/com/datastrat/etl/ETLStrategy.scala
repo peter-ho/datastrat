@@ -309,7 +309,7 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], spark: SparkS
     */
   def logExecution(audit: AuditLog) : AuditLog = {
     import spark.implicits._
-    spark.createDataset(List(audit)).write.mode(SaveMode.Append).parquet(s"${locations("core")}/audit_log")
+    spark.createDataset(List(audit)).write.mode(SaveMode.Append).parquet(s"${locations("warehouse")}/audit_log")
     audit
   }
 }
