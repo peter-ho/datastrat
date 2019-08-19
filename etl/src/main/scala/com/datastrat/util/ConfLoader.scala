@@ -16,9 +16,10 @@ object ConfLoader {
     * @param env environment identifier: dev, tst, uat, prd
     * @param org organization id identifing a tenant to be separated with others
     * @param ara subject area of the etl configuration
+    * @param dvr data version of the current solution
     * @return map with key value pair that matches configuration entries within the given configuration file
     */
-  def apply(env: String, org: String, ara: String):HashMap[String,String] = {
+  def apply(env:String, org:String, ara:String, dvr:String):HashMap[String,String] = {
     val mp: HashMap[String,String] = HashMap.empty[String,String]
     try {
       val confBasePth = s"/$env/$org/etl/config/*.properties"
@@ -28,7 +29,7 @@ object ConfLoader {
       val load = (p:String) => 
         fs.globStatus(new Path(p))
           .filter(x => x.isFile && x.getLen > 0).map(_.getPath)
-          .foreach(x => loadConfFromFile(env, org, ara, fs, x, mp))
+          .foreach(x => loadConfFromFile(env, org, ara, dvr, fs, x, mp))
       load(confBasePth)
       load(confPth)
     } catch {
@@ -44,12 +45,13 @@ object ConfLoader {
     * @param env environment identifier: dev, tst, uat, prd
     * @param org organization id identifing a tenant to be separated with others
     * @param ara subject area of the etl configuration
+    * @param dvr data version of the current solution
     * @param fs FileSystem associated to the current Hadoop/Spark instance
     * @param filepth absolute path of the configuration file to be loaded
     * @param mp hash map with configuration entries to be replaced by the configuration file
     * @return accumulated map with key value pair that matches configuration entries within the given configuration file replacing any existing entries with the same key
     */
-  def loadConfFromFile(env:String, org:String, ara:String, fs:FileSystem, filepth:Path, mp:HashMap[String, String]):HashMap[String,String] = {
+  def loadConfFromFile(env:String, org:String, ara:String, dvr:String, fs:FileSystem, filepth:Path, mp:HashMap[String, String]):HashMap[String,String] = {
     try {
       println(s" ... reading from configuration file in hdfs: $filepth")
 
@@ -57,8 +59,8 @@ object ConfLoader {
       if (props != null) {
         props.stringPropertyNames().asScala.toList.foreach(
           propName => mp.put(propName, props.getProperty(propName)
-            .replace("$env", env).replace("$org", org).replace("$ara", ara)
-            + (if (propName.startsWith("db-")) "." else "")))
+            .replace("$env", env).replace("$org", org).replace("$ara", ara).replace("$dvr", dvr)
+            + (if (propName.startsWith("db.")) "." else "")))
       }
     } catch {
       case e:Exception => e.printStackTrace()

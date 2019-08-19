@@ -324,11 +324,12 @@ object ETLStrategy {
       val env = args(1)
       val org = args(2)
       val ara = args(3)
-      val conf =  ConfLoader(env, org, ara)
-      conf.put("load.nbr", if (args.length == 4) "" else args(4))
+      val dvr = args(4)
+      val conf =  ConfLoader(env, org, ara, dvr)
+      //conf.put("load.nbr", if (args.length == 4) "" else args(4))
       println(s" ... execution starts [${args(0)}] ${conf.getOrElse("load.nbr", "")}")
       val stra = cnstr.newInstance(env, org, ara, conf.toMap, spark).asInstanceOf[ETLTrait]
-      val al = stra.execute(args.slice(4, args.length))
+      val al = stra.execute(args.slice(5, args.length))
       println(al)
       if (JobStatus.Success.toString != al.status) {
         sys.exit(1)

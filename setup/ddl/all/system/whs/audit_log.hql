@@ -7,15 +7,15 @@ CREATE EXTERNAL TABLE IF NOT EXISTS `audit_load`(
   `load_id` string,
   `ara_nm` string,
   `src_tbl_nms` array<string>,
-  `tgt_tbl_nm` strng,
+  `tgt_tbl_nm` string,
   `load_strt_dtm` timestamp,
   `load_end_dtm` timestamp,
-  `trgt_cnt` long,
-  `trgt_orig_cnt` long,
+  `trgt_cnt` bigint,
+  `trgt_orig_cnt` bigint,
   `comment` string,
   `load_type` string,
   `status` string,
   `load_by` string)
 STORED AS TEXTFILE
-LOCATION '/${hivevar:env}/${hivevar:org}/data/system/${hivevar:dvr}/whs/audit_load;
+LOCATION '/${hivevar:env}/${hivevar:org}/data/system/${hivevar:dvr}/whs/audit_load';
 

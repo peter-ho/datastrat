@@ -1,0 +1,3 @@
+activity_ts	^.+$	k
+player_id	^.+$	k
+game_id	^.+$	k
