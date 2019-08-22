@@ -39,8 +39,8 @@ class Import(env:String, org:String, ara:String, conf:Map[String, String], spark
     val spec = Spec.loadFileSpec(spark, dbNms("stage"), filepath, true, true, tsFormat)
     val fileType = spec.name
     import spark.implicits._
-    //val rfrshNm = getRfrshNbr(spark, sc, "inbound", s"${fileType}_inbnd", s"${fileType}\\.(.+)\\.csv".r)
-    val dfNew = spark.table(s"${dbNms("inbound")}${fileType}_inbnd").repartition(numPart)
+    //val rfrshNm = getRfrshNbr(spark, sc, "inbound", s"${fileType}_in", s"${fileType}\\.(.+)\\.csv".r)
+    val dfNew = spark.table(s"${dbNms("inbound")}${fileType}_in").repartition(numPart)
     val edfNewCast = Spec.cast(spark, dfNew, spec)
     if (edfNewCast.isLeft) {
       sb.append(s"""Error casting data from inbound due to: ${edfNewCast.left.get}""")
@@ -52,22 +52,23 @@ class Import(env:String, org:String, ara:String, conf:Map[String, String], spark
         sb.append(s"""Column validation failed: ${eValidate.left.get}""")
       } else {
         cnt = eValidate.right.get
-        sb.append(s"=== Finished casting and validating new rows from ${fileType}_inbnd ===")
+        sb.append(s"=== Finished casting and validating new rows from ${fileType}_in ===")
 //4.    Write validated data to destinataion
         //val dfAdded = dfNewCast.withColumn("load_log_key", lit(logKey.toLong)).withColumn("load_dt", tsCurrent)
         //  .select("load_log_key", "load_dt" +: dfNewCast.columns:_*)
-        val targetPath = s"${locations("stage")}${fileType}_hist/load_id=${Current.loadNbr}/load_log_key=${logKey}"
+        val targetPath = s"${locations("stage")}${fileType}_hst/load_id=${Current.loadId}/load_log_key=${logKey}"
         sb.append("=== Added columns load_log_key and load_dt ===")
         dfNewCast.printSchema
         dfNewCast.write.mode(SaveMode.Overwrite).parquet(targetPath)
 
-        spark.sql(s"msck repair table ${dbNms("stage")}${fileType}_hist")
+        spark.sql(s"msck repair table ${dbNms("stage")}${fileType}_hst")
         spark.sql(s"drop view if exists ${dbNms("stage")}${fileType}")
-        spark.sql(s"""CREATE VIEW ${dbNms("stage")}${fileType} as select * from ${dbNms("stage")}${fileType}_hist where load_id='${Current.loadNbr}' and load_log_key='${logKey}'""")
+        spark.sql(s"""CREATE VIEW ${dbNms("stage")}${fileType} as select * from ${dbNms("stage")}${fileType}_hst where load_id='${Current.loadId}' and load_log_key='${logKey}'""")
         js = JobStatus.Success
+        archive("inbound", s"${fileType}_in")
       }
     }
     println(sb.toString)
-    return logExecution(AuditLog(logKey, Current.loadNbr, ara, Array(filepath), fileType, start, new java.sql.Timestamp(Calendar.getInstance.getTime.getTime),  cnt, 0, sb.toString, "B", js, usrNm))
+    return logExecution(AuditLog(logKey, Current.loadId, ara, Array(filepath), fileType, start, new java.sql.Timestamp(Calendar.getInstance.getTime.getTime),  cnt, 0, sb.toString, "B", js, usrNm))
   }
 }

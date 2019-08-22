@@ -5,7 +5,7 @@ import com.datastrat.util.ConfLoader
 import com.datastrat.util.Session._
 
 object Driver {
-  def main(args: Array[String]) {
+  def main1(args: Array[String]) {
     if (args.length < 3) throw new MissingArgumentException("class name, environment (dev, tst, uat, prd) are required as a parameter, organization, and area are required.")
     else {
       val cnstrs  = Class.forName(args(0)).getConstructors()

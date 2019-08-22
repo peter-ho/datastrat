@@ -20,8 +20,8 @@ object playerlogonsummary {
         .select('month_id, 'player_id, 'game_id, 'type, 'activity_ts)  // select only columns reqired for this job
         .withColumn("last_type", lag("type", 1).over(w))    // identify the previous type for a given player and game
         .withColumn("next_type", lead("type", 1).over(w))   // identify the next type for a given player and game
-        .filter(('type === "LOGON" and ('last_type.isNull or ('last_type !== "LOGON")))   // remove consecutive LOGON 
-          or ('type === "LOGOFF" and ('next_type.isNull or ('next_type !== "LOGOFF"))))   // remove consecutive LOGOFF
+        .filter(('type === "LOGON" and ('last_type.isNull or ('last_type =!= "LOGON")))   // remove consecutive LOGON 
+          or ('type === "LOGOFF" and ('next_type.isNull or ('next_type =!= "LOGOFF"))))   // remove consecutive LOGOFF
         .withColumn("next_type", lead("type", 1).over(w))                                 // assign type of next activity to next_type 
         .filter('type === "LOGON" and ('next_type.isNull or ('next_type === "LOGOFF"))    // select LOGON then LOGOFF or null activities
           or ('type === "LOGOFF" and 'last_type.isNull))                                  // select LOGOFF with null as previous activity

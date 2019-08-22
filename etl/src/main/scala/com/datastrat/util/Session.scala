@@ -51,7 +51,7 @@ object Session {
 
 case class SessionInstance(ts:Timestamp, numOfMnth:Int = 38) {
   lazy val ymd = Session.sdfYMD.format(ts)
-  lazy val loadNbr = Session.sdfConcat.format(ts)
+  lazy val loadId = Session.sdfConcat.format(ts)
 
   lazy val yyEnd = ymd.substring(0, 4).toInt
   lazy val yyPrv = yyEnd - 1

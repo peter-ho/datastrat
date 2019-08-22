@@ -7,7 +7,7 @@ package com.datastrat.etl
 
 import sys.process._
 import java.util.{Date, Calendar, Properties}
-import java.sql.{ Connection, DriverManager }  
+import java.sql.{Timestamp}  
 import java.text.SimpleDateFormat
 import java.time.format.DateTimeFormatter
 import scala.collection.mutable.{ListBuffer, ListMap}
@@ -64,9 +64,21 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], spark: SparkS
     ExeResult(src, Option(d), rowCount)
   }
 
-  val loadNbr = conf.getOrElse("load.nbr", "")
-  if (loadNbr.length > 0) {
-    Current = new SessionInstance(new java.sql.Timestamp(sdfConcat.parse(loadNbr).getTime))
+  var lId = conf.getOrElse("load.nbr", "")
+  if (lId.length > 0) {
+    Current = new SessionInstance(new java.sql.Timestamp(sdfConcat.parse(lId).getTime))
+  }
+  //loadId = Current.loadId
+
+  def updateCurrent(loadIdFmt:String, dbKey:String, tblNm:String, rx:scala.util.matching.Regex):Unit = {
+    val dtf = new SimpleDateFormat(loadIdFmt)
+    val id = getFilenameMatch(s"${locations(dbKey)}$tblNm", rx)
+    if (id.size > 0) updateCurrent(new Timestamp(dtf.parse(id(0).group(1)).getTime))
+  }
+
+  def updateCurrent(id:java.sql.Timestamp) = {
+    Current = new SessionInstance(id)
+    //loadId = Current.loadId
   }
 
   /** Override base trait execute function for the process to start executing the following steps:
@@ -81,20 +93,20 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], spark: SparkS
     var al:AuditLog = null
     try {
       val result = transform(tgtTblNm, executeInternal(args))
-      val alEmpty = AuditLog(logKey, Current.loadNbr, ara_nm, Array(), tgtTblNm, tsStart, new java.sql.Timestamp(Calendar.getInstance.getTime.getTime), 0, 0, "no data returned", result.load_type, JobStatus.Failure, usrNm)
+      val alEmpty = AuditLog(logKey, Current.loadId, ara_nm, Array(), tgtTblNm, tsStart, new java.sql.Timestamp(Calendar.getInstance.getTime.getTime), 0, 0, "no data returned", result.load_type, JobStatus.Failure, usrNm)
       al = logExecution(if (result.data.isEmpty) alEmpty else {
         result.data.get.persist(StorageLevel.MEMORY_AND_DISK_SER)
         result.data.get.printSchema
         if (args.length > 1 && args(1) == "report") result.data.get.report()
         if (result.data.get.count == 0) alEmpty
-        else writeToTable(result, start, tgtTbl._1, tgtTbl._2, Current.loadNbr, true, s"load_id=${Current.loadNbr}/load_log_key=$logKey")
+        else writeToTable(result, start, tgtTbl._1, tgtTbl._2, Current.loadId, true, s"load_id=${Current.loadId}/load_log_key=$logKey")
       })
     } catch {
       	case e:Throwable => {
           e.printStackTrace
           val sb = new StringBuilder
           fillExcpMsg(sb, e)
-          al = logExecution(AuditLog(logKey, Current.loadNbr, ara_nm, Array(), tgtTblNm, tsStart, new java.sql.Timestamp(Calendar.getInstance.getTime.getTime), 0, 0, sb.toString, "", JobStatus.Failure, usrNm))
+          al = logExecution(AuditLog(logKey, Current.loadId, ara_nm, Array(), tgtTblNm, tsStart, new java.sql.Timestamp(Calendar.getInstance.getTime.getTime), 0, 0, sb.toString, "", JobStatus.Failure, usrNm))
         }
     }
     al
@@ -184,13 +196,13 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], spark: SparkS
     * @param start [[java.util.Date]] instance specifying the date time the job starts
     * @param dbKey key of the database for this [[org.apache.spark.sql.DataFrame]] to be written to, e.g. "wk"
     * @param tblNm name of the Hive table to be written to 
-    * @param loadNbr number as an identifier of the current load 
+    * @param loadId number as an identifier of the current load 
     * @param unpersistDataAfter true if data frame should be unpersisted, false otherwise
     *          {{{writeToTable(res, start, "wk", "table1")}}}
     * @param partitionHdfsSubpath part of the hdfs path that identifies the partition this data to be written to
     */
-  def writeToTable(result: ExeResult, start: java.util.Date, dbKey: String, tblNm: String, loadNbr:String, unpersistDataAfter: Boolean, partitionHdfsSubpath: String = null): AuditLog  = {
-    writeToTable(result, start, dbKey, tblNm, loadNbr, getTableHdfsPath(dbKey, tblNm, partitionHdfsSubpath), unpersistDataAfter)
+  def writeToTable(result: ExeResult, start: java.util.Date, dbKey: String, tblNm: String, loadId:String, unpersistDataAfter: Boolean, partitionHdfsSubpath: String = null): AuditLog  = {
+    writeToTable(result, start, dbKey, tblNm, loadId, getTableHdfsPath(dbKey, tblNm, partitionHdfsSubpath), unpersistDataAfter)
   }
 
   /** writes a given [[org.apache.spark.sql.DataFrame]] instance to a specified Hive table overwriting existing data in a specific hdfs path potentially for partitioned data, execution is also logged with end time as current date time after log is executed. 
@@ -201,11 +213,11 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], spark: SparkS
     * @param start [[java.util.Date]] instance specifying the date time the job starts
     * @param dbKey key of the database for this [[org.apache.spark.sql.DataFrame]] to be written to, e.g. "wk"
     * @param tblNm name of the Hive table to be written to 
-    * @param loadNbr number as an identifier of the current load 
+    * @param loadId number as an identifier of the current load 
     * @param hdfsPath path for the data to be written to
     * @param unpersistDataAfter true if data frame should be unpersisted, false otherwise
     */
-  def writeToTable(result: ExeResult, start: java.util.Date, dbKey: String, tblNm: String, loadNbr: String, hdfsPath: String, unpersistDataAfter: Boolean): AuditLog = {
+  def writeToTable(result: ExeResult, start: java.util.Date, dbKey: String, tblNm: String, loadId: String, hdfsPath: String, unpersistDataAfter: Boolean): AuditLog = {
     val sb = new StringBuilder(s"yarn application id: ${spark.sparkContext.applicationId}\nresult comment: ${result.comment}\n")
     val end = Calendar.getInstance.getTime
     val tgtTblNm = dbNms(dbKey) + tblNm
@@ -217,21 +229,21 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], spark: SparkS
     val archResult = archive(dbKey, tblNm)
     sb.append(s"number of partitions after archive: ${archResult._1}\n")
     sb.append(archResult._2)
-    postWriteSetup(dbKey, tblNm, tgtTblNm, loadNbr, hdfsPath, d, d.columns)
+    postWriteSetup(dbKey, tblNm, tgtTblNm, loadId, hdfsPath, d, d.columns)
     if (unpersistDataAfter) d.unpersist
-    AuditLog(logKey, Current.loadNbr, ara_nm, src_tbl_nms.map(x=>tn(x._1,x._2)), tgtTblNm, new java.sql.Timestamp(start.getTime), new java.sql.Timestamp(end.getTime), result.row_count, tgtOrigCnt, sb.toString, result.load_type, if (archResult._1 > 1) JobStatus.Failure else JobStatus.Success, System.getProperty("user.name"))
+    AuditLog(logKey, Current.loadId, ara_nm, src_tbl_nms.map(x=>tn(x._1,x._2)), tgtTblNm, new java.sql.Timestamp(start.getTime), new java.sql.Timestamp(end.getTime), result.row_count, tgtOrigCnt, sb.toString, result.load_type, if (archResult._1 > 1) JobStatus.Failure else JobStatus.Success, System.getProperty("user.name"))
   }
 
-  def writeValidation(result: ExeResult, archResult: (Long, String), tgtTblNm: String, loadNbr: String): String = {
+  def writeValidation(result: ExeResult, archResult: (Long, String), tgtTblNm: String, loadId: String): String = {
     "test"
   }
 
-  def postWriteSetup(dbKey:String, tblNm:String, tgtTblNm:String, loadNbr:String, hdfsPath:String, ds:DataFrame, cols:Array[String]): String = { 
+  def postWriteSetup(dbKey:String, tblNm:String, tgtTblNm:String, loadId:String, hdfsPath:String, ds:DataFrame, cols:Array[String]): String = { 
     val fs = FileSystem.get(hadoopConfiguration)
-    println(s" === PostWriteSetup for $tgtTblNm $loadNbr $hdfsPath $cols")
+    println(s" === PostWriteSetup for $tgtTblNm $loadId $hdfsPath $cols")
     val bsPth = getTableHdfsPath(dbKey, tblNm)
     println(s"   attempt clean up of $bsPth")
-    fs.listStatus(new Path(bsPth)).filter(_.isDir).filter(x => fs.listStatus(x.getPath).size == 0)
+    fs.listStatus(new Path(bsPth)).filter(_.isDirectory).filter(x => fs.listStatus(x.getPath).size == 0)
       .foreach(x => {
         print(s"    Trying to delete: ${x.getPath} : ")
         println(if (fs.delete(x.getPath, false)) "Success" else "Fail")
@@ -256,32 +268,50 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], spark: SparkS
     sb.toString
   }
 
-  def archive(dbKey: String, tblNm: String): (Long, String) = {
+  def getPartLoads(dbKey:String, tblNm:String):(DataFrame, Array[org.apache.spark.sql.Row]) = {
+    /// load id and load log key are assumed to be the first two partitions
     import spark.implicits._
-    val sbMsg = new StringBuilder
-    /// refresh number and load log key are assumed to be the first two partitions
     val parts = spark.sql(s"show partitions ${dbNms(dbKey)}$tblNm")
       .withColumn("partition", split(regexp_replace('partition, "[^\\/]+?=", ""), "/"))
       .withColumn("load_id", 'partition(0)).withColumn("load_log_key", 'partition(1))
       .select("load_id", "load_log_key").cache
     val loads = parts.orderBy("load_log_key").collect().dropRight(1)
+    (parts, loads)
+  }
+
+  def archive(dbKey: String, tblNm: String): (Long, String) = {
+    import spark.implicits._
+    val sbMsg = new StringBuilder
     //val runIds = dfOrig.select("load_id", "load_log_key").distinct.collect
     val fs = FileSystem.get(hadoopConfiguration)
-    if (dbKey == "stage") {
+    var partCnt = 1L
+    dbKey match {
+    case "stage" => {
       println(" === no archive for stage, so just delete current data == ")
-      loads.foreach(x => {
+      getPartLoads(dbKey, tblNm)._2.foreach(x => {
         val spath = s"${locations(dbKey)}$tblNm/load_id=${x.getString(0)}/load_log_key=${x.getString(1)}"
         val path = new Path(spath)
         sbMsg.append(retry(() => fs.delete(path, true), s"delete of $spath failed ", 3))
         spark.sql(s"alter table ${dbNms(dbKey)}$tblNm drop partition(load_id='${x.getString(0)}', load_log_key='${x.getString(1)}')")
       })
-    } else {
+      partCnt = spark.sql(s"show partitions ${dbNms(dbKey)}$tblNm").count
+    } 
+    case "inbound" => {
+      println(" === inbound files are moved to archive === ")
+      val dir = s"${locations("archive")}$tblNm/load_id=${Current.loadId}"
+      fs.mkdirs(new Path(dir))
+      fs.rename(new Path(s"${locations("inbound")}$tblNm"), new Path(dir + s"/load_log_key=$logKey"))
+      fs.mkdirs(new Path(s"${locations("inbound")}$tblNm"))
+      spark.sql(s"msck repair table ${dbNms("archive")}$tblNm")
+    }
+    case _ => {
+      val pl = getPartLoads(dbKey, tblNm)
       println(" === create directory for each rfresh number == ")
-      parts.select("load_id").distinct.collect().map(_.getString(0)).foreach(x => {
+      pl._1.select("load_id").distinct.collect().map(_.getString(0)).foreach(x => {
         fs.mkdirs(new Path(s"${locations("archive")}$tblNm/load_id=$x"))
       })
       println(" === move/rename current load_id/run ")
-      loads.foreach(x => {
+      pl._2.foreach(x => {
         val spath = s"$tblNm/load_id=${x.getString(0)}/load_log_key=${x.getString(1)}"
         val srcPath = new Path(s"${locations(dbKey)}$spath")
         val destPath = new Path(s"${locations("archive")}$spath")
@@ -296,8 +326,8 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], spark: SparkS
         sbMsg.append(retry(() => fs.delete(archPath, true), s"deletion of extra archive file failed ", 3))
         spark.sql(s"alter table ${dbNms("archive")}$tblNm drop partition(load_id='$x')")
       })
-    }
-    val partCnt = spark.sql(s"show partitions ${dbNms(dbKey)}$tblNm").count
+      partCnt = spark.sql(s"show partitions ${dbNms(dbKey)}$tblNm").count
+    }}
     println(s" === archive completed with partition count: $partCnt")
     (partCnt, sbMsg.toString)
   }

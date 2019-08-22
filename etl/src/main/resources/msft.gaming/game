@@ -1,0 +1,4 @@
+id	^.+$	k
+name	^.+$
+type	^.+$
+list_price	^.+$

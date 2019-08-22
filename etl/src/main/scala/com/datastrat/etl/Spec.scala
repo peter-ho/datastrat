@@ -17,10 +17,13 @@ import org.apache.spark.sql.functions.unix_timestamp
  * A specification for files received from external system
  */
 object Spec { 
+  val reserved_columns = Array("load_id", "load_log_key", "updt_dt", "load_dt")
   case class ColumnSpec(name: String, typ: DataType, validation: String, isKey: Boolean = false)
-  case class FileSpec(name: String, columns: Seq[ColumnSpec], trimString: Boolean, ignoreEmptyRows: Boolean, tsFormat: String)
+  case class FileSpec(name: String, columns: Seq[ColumnSpec], trimString: Boolean, ignoreEmptyRows: Boolean, tsFormat: String, arrayDelimiter:String)
 
   /** Load inbound file specification from configuration file and Hive
+    * TODO: for array, element type should be captured from dt.catalogString = array<string> 
+    *   or dt.json = {"type":"array","elementType":"string","containsNull":true}
     *
     * @example 1
     *          {{{Spec.loadFileSpec(spark, "wh", "src/main/resources/hqxinboundfilespec/episodelevelcostbreakdown)
@@ -33,7 +36,7 @@ object Spec {
     * @param tsFormat [[java.lang.String]] format of timestamp of the input data, default hive format is applied if this is empty
     * @return a new instance of FileSpec loaded from parameters provided
     */
-  def loadFileSpec(spark:SparkSession, databaseName:String, filepath: String, trimString: Boolean, ignoreEmptyRows: Boolean, tsFormat: String = "", tblSuffix: String = "_hist"): FileSpec = {
+  def loadFileSpec(spark:SparkSession, databaseName:String, filepath: String, trimString: Boolean, ignoreEmptyRows: Boolean, arrayDelimiter:String=",", tsFormat: String = "", tblSuffix: String = "_hst"): FileSpec = {
     val mapValidation = scala.collection.mutable.Map[String, String]()
     var setKeys = Set[String]()
     val path = java.nio.file.Paths.get(filepath)
@@ -46,12 +49,10 @@ object Spec {
       if (y(1).length > 0) mapValidation += (y(0).toLowerCase -> y(1))
       if (y.length > 2 && y(2).length > 0 && y(2) == "k") setKeys += y(0)
     })
-    //FileSpec(path.getFileName().toString(), content.map(x => x.split("\t")).map(x => ColumnSpec(x(0), x(1))).toList)
-    //FileSpec(fileType, df.schema.map(x => ColumnSpec(x.name, x.dataType)).toList)
     println(s"""Loading: ${databaseName}${fileType}""")
     val df = spark.table(s"${databaseName}${fileType}$tblSuffix")
-    FileSpec(fileType, df.schema.filter(x => (!x.name.equalsIgnoreCase("load_log_key")) && (!x.name.equalsIgnoreCase("load_dt")))
-      .map(x => ColumnSpec(x.name, x.dataType, mapValidation.getOrElse(x.name, ""), setKeys.contains(x.name))), trimString, ignoreEmptyRows, tsFormat)
+    FileSpec(fileType, df.schema.filter(x => !reserved_columns.contains(x.name.toLowerCase))
+      .map(x => ColumnSpec(x.name, x.dataType, mapValidation.getOrElse(x.name, ""), setKeys.contains(x.name))), trimString, ignoreEmptyRows, tsFormat, arrayDelimiter)
   }
 
   /** Cast a dataframe according to the data type specified in FileSpec instance passed in
@@ -83,8 +84,10 @@ object Spec {
       val colnameC = c.name + "1"
       val col = df(c.name)
       if (c.typ.equals(org.apache.spark.sql.types.TimestampType) && spec.tsFormat != "") 
-        df = df.withColumn(colnameC, unix_timestamp(org.apache.spark.sql.functions.trim(col), spec.tsFormat).cast("timestamp"))
-      else df = df.withColumn(colnameC, org.apache.spark.sql.functions.trim(col).cast(c.typ))
+        df = df.withColumn(colnameC, unix_timestamp(trim(col), spec.tsFormat).cast("timestamp"))
+      else if (c.typ.toString.startsWith("ArrayType"))
+        df = df.withColumn(colnameC, split(trim(col), spec.arrayDelimiter))
+      else df = df.withColumn(colnameC, trim(col).cast(c.typ))
     })
     df.persist(StorageLevel.MEMORY_AND_DISK_SER)
 
