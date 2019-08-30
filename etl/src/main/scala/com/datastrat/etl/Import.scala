@@ -30,8 +30,8 @@ class Import(env:String, org:String, ara:String, conf:Map[String, String], spark
   }
 
   def execute(filepath:String, numPart:Int, tsFormat:String): AuditLog = {
-    val start = new java.sql.Timestamp(Calendar.getInstance.getTime.getTime)
-    val tsCurrent = current_timestamp()
+    val start = Calendar.getInstance.getTime
+    val tsStart = new java.sql.Timestamp(start.getTime)
     val sb = new StringBuilder
     var js = JobStatus.Failure
     var cnt:Long = -1
@@ -54,10 +54,8 @@ class Import(env:String, org:String, ara:String, conf:Map[String, String], spark
         cnt = eValidate.right.get
         sb.append(s"=== Finished casting and validating new rows from ${fileType}_in ===")
 //4.    Write validated data to destinataion
-        //val dfAdded = dfNewCast.withColumn("load_log_key", lit(logKey.toLong)).withColumn("load_dt", tsCurrent)
-        //  .select("load_log_key", "load_dt" +: dfNewCast.columns:_*)
         val targetPath = s"${locations("stage")}${fileType}_hst/load_id=${Current.loadId}/load_log_key=${logKey}"
-        sb.append("=== Added columns load_log_key and load_dt ===")
+        sb.append("=== Added columns load_log_key and load_ts ===")
         dfNewCast.printSchema
         dfNewCast.write.mode(SaveMode.Overwrite).parquet(targetPath)
 
@@ -66,9 +64,10 @@ class Import(env:String, org:String, ara:String, conf:Map[String, String], spark
         spark.sql(s"""CREATE VIEW ${dbNms("stage")}${fileType} as select * from ${dbNms("stage")}${fileType}_hst where load_id='${Current.loadId}' and load_log_key='${logKey}'""")
         js = JobStatus.Success
         archive("inbound", s"${fileType}_in")
+        archive("stage", s"${fileType}_hst")
       }
     }
     println(sb.toString)
-    return logExecution(AuditLog(logKey, Current.loadId, ara, Array(filepath), fileType, start, new java.sql.Timestamp(Calendar.getInstance.getTime.getTime),  cnt, 0, sb.toString, "B", js, usrNm))
+    return logExecution(AuditLog(logKey, Current.loadId, ara, Array(filepath), fileType, tsStart, new java.sql.Timestamp(Calendar.getInstance.getTime.getTime),  cnt, 0, sb.toString, "B", js, usrNm))
   }
 }

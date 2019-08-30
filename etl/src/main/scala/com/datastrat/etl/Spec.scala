@@ -17,7 +17,7 @@ import org.apache.spark.sql.functions.unix_timestamp
  * A specification for files received from external system
  */
 object Spec { 
-  val reserved_columns = Array("load_id", "load_log_key", "updt_dt", "load_dt")
+  val reserved_columns = Array("load_id", "load_log_key", "updt_ts", "load_ts")
   case class ColumnSpec(name: String, typ: DataType, validation: String, isKey: Boolean = false)
   case class FileSpec(name: String, columns: Seq[ColumnSpec], trimString: Boolean, ignoreEmptyRows: Boolean, tsFormat: String, arrayDelimiter:String)
 

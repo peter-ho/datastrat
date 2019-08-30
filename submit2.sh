@@ -1,1 +1,1 @@
-spark-submit --driver-memory 1G --num-executors 2 --executor-memory 1G --class com.datastrat.etl.ETLStrategy etl/target/scala-2.11/data-strat_2.11-1.0.0.jar com.datastrat.etl.SCDImport dev msft gaming v01 /msft.gaming/game 1 "yyyy-MM-dd HH:mm:ss.S" yyyMMdd
+spark-submit --driver-memory 1G --num-executors 2 --executor-memory 1G --class com.datastrat.etl.ETLStrategy etl/target/scala-2.11/data-strat_2.11-1.0.0.jar com.datastrat.etl.SCDImport dev msft gaming v01 - /msft.gaming/game 1 "yyyy-MM-dd HH:mm:ss.S" yyyyMMdd
