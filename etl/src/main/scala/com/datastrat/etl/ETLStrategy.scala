@@ -48,6 +48,10 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], spark: SparkS
       "archive" -> (conf.get("db.archive").get))
   lazy val usrNm = System.getProperty("user.name")
   def tn(tblNm:(String, String)):String = s"${dbNms(tblNm._1)}${tblNm._2}"
+  def tn(tblNm:String):String = {
+    val t = tblNm.split("\\.")
+    tn(t(0), t(1))
+  }
 
   def transform(tgtTblNm:String, src:ExeResult): ExeResult = {
     if (src.data.isEmpty) return src
@@ -286,6 +290,7 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], spark: SparkS
     val fs = FileSystem.get(hadoopConfiguration)
     var partCnt = 1L
     dbKey match {
+    case "outbound" =>
     case "stage" => {
       println(" === no archive for stage, so just delete current data == ")
       getPartLoads(dbKey, tblNm)._2.foreach(x => {

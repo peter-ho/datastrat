@@ -68,6 +68,6 @@ class Import(env:String, org:String, ara:String, conf:Map[String, String], spark
       }
     }
     println(sb.toString)
-    return logExecution(AuditLog(logKey, Current.loadId, ara, Array(filepath), fileType, tsStart, new java.sql.Timestamp(Calendar.getInstance.getTime.getTime),  cnt, 0, sb.toString, "B", js, usrNm))
+    return logExecution(AuditLog(logKey, Current.loadId, ara, Array(filepath), fileType, tsStart, new java.sql.Timestamp(Calendar.getInstance.getTime.getTime),  cnt, 0, sb.toString, "I", js, usrNm))
   }
 }
