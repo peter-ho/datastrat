@@ -19,7 +19,7 @@ import com.datastrat.util.Session._
  * @version 1.0
  *
  * Main Spark Launcher for file import
- * Parameters: [path to file spec file] [number of partition] [input directory location key] [timestamp format]
+ * Parameters: [path to file spec file] [number of partition] [timestamp format]
  */
 class Import(env:String, org:String, ara:String, conf:Map[String, String], spark:SparkSession) extends ETLStrategy(env, conf, spark, ara, null, Array()) with ETLTrait {
 
