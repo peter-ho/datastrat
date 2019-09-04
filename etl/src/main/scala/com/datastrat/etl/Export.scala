@@ -49,17 +49,20 @@ class Export(env:String, org:String, ara:String, conf:Map[String, String], spark
     //val r = scala.util.Random.nextInt(99999).toString
     //val tempTableName = "tmptsvexport".concat(r)
     val src = tn(srcTblNm)
-    val dfT = spark.table(tn(s"outbound$tblNm"))
+    val dfT = spark.table(tn(s"outbound.$tblNm"))
     val cols = dfT.columns.filterNot(Array("load_id", "load_log_key").contains(_))
-    sb.append(s"=== columns identified in target: $cols")
+    sb.append(s"\n=== columns identified in target: ${cols.mkString(",")}")
     val d = spark.table(src).select(cols.head, cols.tail:_*)
       .coalesce(maxNbrFile).cache
-    sb.append(s"=== cache and coalesce source table $src with selected columns")
+    sb.append(s"\n=== cache and coalesce source table $src with selected columns")
     val cnt = d.count
     d.write.option("sep", fldSprtr).option("header", prntHdr).option("compression", cmprs)
       .option("timestampFormat", tsFrmt).csv(pth)
-    sb.append(s"=== wrote table to $pth")
+    sb.append(s"\n=== wrote table to $pth")
+    spark.sql(s"msck repair table ${dbNms("archive")}$tblNm")
+    sb.append(s"\n=== msck repair table in hive for new partition")
     archive("outbound", tblNm)
+    sb.append(s"\n=== past version archived")
     js = JobStatus.Success
 
     return logExecution(AuditLog(logKey, Current.loadId, ara, Array(src), tblNm, tsStart, new java.sql.Timestamp(Calendar.getInstance.getTime.getTime), cnt, 0, sb.toString, "E", js, usrNm))

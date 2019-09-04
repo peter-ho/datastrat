@@ -1,0 +1,1 @@
+spark-submit --driver-memory 1G --num-executors 2 --executor-memory 1G --class com.datastrat.etl.ETLStrategy etl/target/scala-2.11/data-strat_2.11-1.0.0.jar com.datastrat.etl.Export dev msft gaming v01 - warehouse.playerlogonsummary_hst playerlogonsummary_ou true 1 gzip "yyyy/MM/dd HH:mm"

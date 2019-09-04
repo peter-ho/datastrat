@@ -11,6 +11,7 @@ import java.sql.{Timestamp}
 import java.text.SimpleDateFormat
 import java.time.format.DateTimeFormatter
 import scala.collection.mutable.{ListBuffer, ListMap}
+import scala.util.Try
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileSystem, Path}
 import org.apache.spark.{SparkContext, SparkConf}
@@ -47,6 +48,7 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], spark: SparkS
       "outbound" -> (conf.get("db.outbound").get),
       "archive" -> (conf.get("db.archive").get))
   lazy val usrNm = System.getProperty("user.name")
+  lazy val DEFAULT_ARCHIVE_COUNT = 4
   def tn(tblNm:(String, String)):String = s"${dbNms(tblNm._1)}${tblNm._2}"
   def tn(tblNm:String):String = {
     val t = tblNm.split("\\.")
@@ -290,8 +292,8 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], spark: SparkS
     val fs = FileSystem.get(hadoopConfiguration)
     var partCnt = 1L
     dbKey match {
-    case "outbound" =>
     case "stage" => {
+      /// delete all partitions that are not the most recent one
       println(" === no archive for stage, so just delete current data == ")
       getPartLoads(dbKey, tblNm)._2.foreach(x => {
         val spath = s"${locations(dbKey)}$tblNm/load_id=${x.getString(0)}/load_log_key=${x.getString(1)}"
@@ -302,16 +304,17 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], spark: SparkS
       partCnt = spark.sql(s"show partitions ${dbNms(dbKey)}$tblNm").count
     } 
     case "inbound" => {
-      println(" === inbound files are moved to archive === ")
+      /// tables are assumed to be not partitioned, and all files are moved with the load_id/load_log_key partition
+      println(s" === $dbKey files are moved to archive === ")
       val dir = s"${locations("archive")}$tblNm/load_id=${Current.loadId}"
       fs.mkdirs(new Path(dir))
-      fs.rename(new Path(s"${locations("inbound")}$tblNm"), new Path(dir + s"/load_log_key=$logKey"))
-      fs.mkdirs(new Path(s"${locations("inbound")}$tblNm"))
+      fs.rename(new Path(s"${locations(dbKey)}$tblNm"), new Path(dir + s"/load_log_key=$logKey"))
+      fs.mkdirs(new Path(s"${locations(dbKey)}$tblNm"))
       spark.sql(s"msck repair table ${dbNms("archive")}$tblNm")
     }
     case _ => {
       val pl = getPartLoads(dbKey, tblNm)
-      println(" === create directory for each rfresh number == ")
+      println(" === create directory for each load id == ")
       pl._1.select("load_id").distinct.collect().map(_.getString(0)).foreach(x => {
         fs.mkdirs(new Path(s"${locations("archive")}$tblNm/load_id=$x"))
       })
@@ -324,7 +327,7 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], spark: SparkS
         spark.sql(s"alter table ${dbNms(dbKey)}$tblNm drop partition(load_id='${x.getString(0)}', load_log_key='${x.getString(1)}')")
       })
       spark.sql(s"msck repair table ${dbNms("archive")}$tblNm")
-      val rnToDel = spark.table(dbNms("archive") + tblNm).select("load_id").distinct.orderBy("load_id").collect().map(_.getString(0)).dropRight(4)
+      val rnToDel = spark.table(dbNms("archive") + tblNm).select("load_id").distinct.orderBy("load_id").collect().map(_.getString(0)).dropRight(DEFAULT_ARCHIVE_COUNT)
       rnToDel.foreach(x => {
         val spath = s"${locations("archive")}$tblNm/load_id=$x"
         val archPath = new Path(spath)
@@ -333,6 +336,11 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], spark: SparkS
       })
       partCnt = spark.sql(s"show partitions ${dbNms(dbKey)}$tblNm").count
     }}
+    println(s" === delete empty directories : $partCnt")
+    val p1 = Try(fs.listStatus(new Path(s"${locations("archive")}$tblNm"))).getOrElse(Array[org.apache.hadoop.fs.FileStatus]())
+    val p2 = Try(fs.listStatus(new Path(s"${locations(dbKey)}$tblNm"))).getOrElse(Array[org.apache.hadoop.fs.FileStatus]())
+    val p = p1 ++ p2
+    p.filter(_.isDir).filter(x => fs.listStatus(x.getPath).size == 0).map(_.getPath).foreach(x => fs.delete(x))
     println(s" === archive completed with partition count: $partCnt")
     (partCnt, sbMsg.toString)
   }
