@@ -72,6 +72,7 @@ abstract class ETLStrategy(env: String, conf: Map[String, String], spark: SparkS
 
   var lId = conf.getOrElse("load.nbr", "")
   if (lId.length > 0) {
+    println(s" === Overwrite load.nbr as $lId")
     Current = new SessionInstance(new java.sql.Timestamp(sdfConcat.parse(lId).getTime))
   }
   //loadId = Current.loadId
@@ -369,7 +370,7 @@ object ETLStrategy {
       val ara = args(3)
       val dvr = args(4)
       val conf =  ConfLoader(env, org, ara, dvr)
-      conf.put("load.nbr", if (args.length >= 6) "" else args(5))
+      //conf.put("load.nbr", if (args.length >= 6) args(5) else "")
       println(s" ... execution starts [${args(0)}] ${conf.getOrElse("load.nbr", "")}")
       val stra = cnstr.newInstance(env, org, ara, conf.toMap, spark).asInstanceOf[ETLTrait]
       val al = stra.execute(args.slice(args.indexOf("-")+1, args.length))

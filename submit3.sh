@@ -1,1 +1,1 @@
-spark-submit --driver-memory 1G --num-executors 2 --executor-memory 1G --class com.datastrat.etl.ETLStrategy etl/target/scala-2.11/data-strat_2.11-1.0.0.jar com.msft.gaming.etl.playerlogonsummary\$warehouse dev msft gaming v01 201901
+spark-submit --driver-memory 1G --num-executors 2 --executor-memory 1G --class com.datastrat.etl.ETLStrategy etl/target/scala-2.11/data-strat_2.11-1.0.0.jar com.msft.gaming.etl.playerlogonsummary\$warehouse dev msft gaming v01 2019010100000

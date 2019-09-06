@@ -59,6 +59,7 @@ class Export(env:String, org:String, ara:String, conf:Map[String, String], spark
     d.write.option("sep", fldSprtr).option("header", prntHdr).option("compression", cmprs)
       .option("timestampFormat", tsFrmt).csv(pth)
     sb.append(s"\n=== wrote table to $pth")
+    spark.sql(s"msck repair table ${dbNms("outbound")}$tblNm")
     spark.sql(s"msck repair table ${dbNms("archive")}$tblNm")
     sb.append(s"\n=== msck repair table in hive for new partition")
     archive("outbound", tblNm)

@@ -105,11 +105,11 @@ object ETLTestBase {
   lazy val repoLoadFile = scala.collection.mutable.Map[String,String]()
 
   // load resource file into spark temp view if its not already loaded, assuming tables are unique within an origanization
-  def loadTbl(nm:String, filePrefix:String, org:String, ara:String) = {
-    val flKey = s"$org $ara $filePrefix"
+  def loadTbl(nm:String, dataFile:String, org:String, ara:String) = {
+    val flKey = s"$org $ara $dataFile"
     if (repoLoadFile.getOrElse(nm, "") != flKey) {
-      val pathSch = s"${resourcesDirectory.getAbsolutePath()}/$org.$ara/$filePrefix.schema"
-      val path = s"${resourcesDirectory.getAbsolutePath()}/$org.$ara/$filePrefix.csv"
+      val pathSch = s"${resourcesDirectory.getAbsolutePath()}/$org.$ara/$nm.schema"
+      val path = s"${resourcesDirectory.getAbsolutePath()}/$org.$ara/$dataFile.csv"
       val txtSch = Source.fromFile(pathSch).getLines.filter(_.length > 2).toArray.map(_.split(" "))
       //txtSch.foreach(x => println(x.mkString("|")))
       val schema = txtSch.filter(_(1).toLowerCase != "string").map(x => (x(0).replace("`", ""), x(1)))
