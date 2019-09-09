@@ -370,7 +370,7 @@ object ETLStrategy {
       val ara = args(3)
       val dvr = args(4)
       val conf =  ConfLoader(env, org, ara, dvr)
-      //conf.put("load.nbr", if (args.length >= 6) args(5) else "")
+      conf.put("load.nbr", if (args.length >= 6 && args(5).length > 1) args(5) else "")
       println(s" ... execution starts [${args(0)}] ${conf.getOrElse("load.nbr", "")}")
       val stra = cnstr.newInstance(env, org, ara, conf.toMap, spark).asInstanceOf[ETLTrait]
       val al = stra.execute(args.slice(args.indexOf("-")+1, args.length))
